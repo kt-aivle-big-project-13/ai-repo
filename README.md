@@ -4,10 +4,6 @@
 
 ## FastAPI 개발 환경 설정
 
-본 문서는 **Windows PowerShell 환경**을 기준으로 작성되었습니다.
-
----
-
 ### 1. 프로젝트 클론
 
 ```powershell
@@ -25,9 +21,17 @@ git switch <브랜치명>
 
 ### 2. Python 버전 확인
 
-```bash
+```powershell
 python --version
 ```
+만약 다음과 같은 에러 메세지가 뜬다면
+"Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases."
+
+아래 내용을 실행해본다.
+
+1. Windows 설정 → 앱 → 고급 앱 설정 → 앱 실행 별칭
+2. 목록에서 "App Installer python.exe", "App Installer python3.exe" 항목을 찾아 꺼짐(Off) 으로 전환
+3. VS Code 완전히 종료 후 재시작
 
 다음과 같이 Python 3.13.x가 출력되어야 합니다.
 
@@ -43,7 +47,7 @@ py -3.13 --version
 
 ---
 
-### 4. 가상환경 생성
+### 3. 가상환경 생성
 
 프로젝트 루트 디렉터리에서 Python 가상환경을 생성합니다.
 
@@ -61,7 +65,7 @@ py -3.13 -m venv .venv
 
 ---
 
-### 5. 가상환경 활성화
+### 4. 가상환경 활성화
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -89,7 +93,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ---
 
-### 6. 의존성 설치
+### 5. 의존성 설치
 
 가상환경이 활성화된 상태에서 pip를 업데이트합니다.
 
@@ -105,7 +109,7 @@ python -m pip install -r requirements.txt
 
 ---
 
-### 7. FastAPI 서버 실행
+### 6. FastAPI 서버 실행
 
 프로젝트 루트 디렉터리에서 다음 명령어를 실행합니다.
 
@@ -127,7 +131,7 @@ http://127.0.0.1:8000/docs
 
 ---
 
-### 8. 가상환경 종료
+### 7. 가상환경 종료
 
 ```powershell
 deactivate
