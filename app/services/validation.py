@@ -49,6 +49,31 @@ class _IssueCollector:
         return any(issue.level is IssueLevel.BLOCK for issue in self.issues)
 
 
+def _min_category_counts(learner: dict, feature_names: list[str]) -> dict[str, int]:
+    """모델 트리에 쓰인 범주형 코드로 학습 당시 카테고리 개수의 하한을 역산한다.
+
+    XGBoost 는 범주형을 정수 코드로 학습하지만 원래 문자열 라벨은 저장하지
+    않는다. 트리 분기에 등장한 최대 코드가 k 면 학습 때 카테고리가 최소 k+1
+    개는 있었다는 뜻이다. 감사 데이터의 고유값 개수가 이보다 적으면 pandas 가
+    코드를 다르게 매겨 모델이 값을 잘못 알아듣는다.
+    """
+    trees = learner["gradient_booster"]["model"]["trees"]
+    max_code: dict[str, int] = {}
+    for tree in trees:
+        split_indices = tree["split_indices"]
+        categories = tree["categories"]
+        for node, segment, size in zip(
+            tree["categories_nodes"],
+            tree["categories_segments"],
+            tree["categories_sizes"],
+        ):
+            feature = feature_names[split_indices[node]]
+            chunk = categories[segment : segment + size]
+            if chunk:
+                max_code[feature] = max(max_code.get(feature, -1), max(chunk))
+    return {feature: code + 1 for feature, code in max_code.items()}
+
+
 def load_model_schema(model_path: Path) -> ModelSchema:
     """`credit_model.json` 을 로드하고 피처 스키마를 읽는다.
 
@@ -73,6 +98,7 @@ def load_model_schema(model_path: Path) -> ModelSchema:
         categorical_features=categorical,
         n_features=len(feature_names),
         best_iteration=int(best_iteration) if best_iteration is not None else None,
+        min_category_counts=_min_category_counts(learner, feature_names),
     )
 
 
@@ -140,6 +166,30 @@ def _check_feature_coverage(
             f"값이 전부 결측인 피처: {empty_features[:10]}",
         )
     return True
+
+
+def _check_categorical_cardinality(
+    frame: pd.DataFrame, schema: ModelSchema, collector: _IssueCollector, item: str
+) -> None:
+    """범주형 피처의 고유값 개수가 학습 당시 하한을 채우는지 확인한다.
+
+    감사 데이터에 학습 때 있던 범주값이 빠져 있으면 pandas 가 코드를 다르게
+    매겨 예측이 조용히 틀어진다. 개수가 부족하면 그런 위험을 알리는 BLOCK 이다.
+    (개수가 같아도 값 구성이 다르면 못 잡지만, 라벨이 모델에 없어 그 이상은
+    확인할 수 없다.)
+    """
+    for feature in schema.categorical_features:
+        expected = schema.min_category_counts.get(feature)
+        if expected is None or feature not in frame.columns:
+            continue
+        actual = frame[feature].dropna().nunique()
+        if actual < expected:
+            collector.add(
+                IssueLevel.BLOCK,
+                item,
+                f"범주형 '{feature}' 고유값 {actual}개 < 학습 당시 최소 {expected}개 "
+                "— 코드 정합이 깨져 예측이 틀어질 수 있음",
+            )
 
 
 def _check_protected_in_model(schema: ModelSchema, collector: _IssueCollector) -> dict[str, bool]:
@@ -253,7 +303,9 @@ def validate_audit_inputs(
         collector.add(IssueLevel.BLOCK, audit_path.name, "감사 데이터가 비어 있음")
         return ValidationResult(passed=False, issues=collector.issues, model_schema_info=schema)
 
-    _check_feature_coverage(audit_frame, schema, collector, audit_path.name)
+    features_present = _check_feature_coverage(audit_frame, schema, collector, audit_path.name)
+    if features_present:
+        _check_categorical_cardinality(audit_frame, schema, collector, audit_path.name)
     _check_target(audit_frame, collector)
     for column in (GENDER_COLUMN, AGE_GROUP_COLUMN):
         _check_protected_column(audit_frame, column, collector)

@@ -36,6 +36,10 @@ class ModelSchema(BaseModel):
     best_iteration: int | None = Field(
         default=None, description="early stopping 이 있으면 예측 시 iteration_range 상한으로 사용"
     )
+    min_category_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="범주형 피처별 학습 당시 카테고리 개수의 하한 (모델 트리에서 역산)",
+    )
 
 
 class AuditDatasetInfo(BaseModel):
