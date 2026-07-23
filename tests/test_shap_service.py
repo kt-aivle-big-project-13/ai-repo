@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 import app.services.shap as shap_service
 from app.schemas.shap import (
     ShapAnalysisRequest,
@@ -123,3 +124,27 @@ def test_build_pipeline_config_uses_request_values():
         "age_group": ["AGE_GROUP"],
     }
     assert "TARGET" in config["disclosure_policy"]["deny_columns"]
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        None,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+    ],
+)
+def test_non_finite_metric_value_is_converted_to_none(
+    invalid_value,
+):
+    metric = shap_service._to_metric_result(
+        {
+            "value": invalid_value,
+            "threshold": 0.5,
+            "status": "NOT_EVALUATED",
+        },
+        metric="FIDELITY",
+        label="설명 충실성",
+    )
+
+    assert metric.value is None

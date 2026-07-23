@@ -1,6 +1,7 @@
 """SHAP 설명가능성 분석 서비스."""
 
 import tempfile
+import numpy as np
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -106,10 +107,20 @@ def _to_metric_result(
 ) -> ShapMetricResult:
     """파이프라인 KPI를 백엔드 저장 계약으로 변환한다."""
 
+    raw_value = result.get("value")
+    value = (
+        float(raw_value)
+        if raw_value is not None
+        else None
+    )
+
+    if value is not None and not np.isfinite(value):
+        value = None
+
     return ShapMetricResult(
         metric=metric,
         label=label,
-        value=float(result["value"]),
+        value=value,
         threshold=float(result["threshold"]),
         status=str(result["status"]),
     )

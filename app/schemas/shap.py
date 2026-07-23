@@ -18,7 +18,7 @@ class ShapMetricResult(BaseModel):
 
     metric: str
     label: str
-    value: float
+    value: float | None
     threshold: float
     status: str
 
