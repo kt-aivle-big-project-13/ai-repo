@@ -23,6 +23,11 @@ def test_download_s3_object(monkeypatch, tmp_path):
             calls.append((bucket, key, destination))
             Path(destination).write_bytes(b"model-data")
 
+    monkeypatch.delenv(
+        "MINIO_ENDPOINT",
+        raising=False,
+    )
+
     monkeypatch.setenv(
         "AWS_S3_BUCKET",
         "test-audit-bucket",
@@ -74,3 +79,127 @@ def test_download_fails_when_bucket_is_missing(
             "models/model.json",
             tmp_path / "model.json",
         )
+
+def test_create_s3_client_uses_aws_when_minio_is_not_configured(
+    monkeypatch,
+):
+    """MinIO 설정이 없으면 AWS S3 기본 클라이언트를 생성한다."""
+
+    captured = {}
+    expected_client = object()
+
+    monkeypatch.setenv(
+        "AWS_REGION",
+        "ap-northeast-2",
+    )
+    monkeypatch.delenv(
+        "MINIO_ENDPOINT",
+        raising=False,
+    )
+
+    def fake_client(service_name, **kwargs):
+        captured["service_name"] = service_name
+        captured["kwargs"] = kwargs
+        return expected_client
+
+    monkeypatch.setattr(
+        storage.boto3,
+        "client",
+        fake_client,
+    )
+
+    result = storage._create_s3_client()
+
+    assert result is expected_client
+    assert captured == {
+        "service_name": "s3",
+        "kwargs": {
+            "region_name": "ap-northeast-2",
+        },
+    }
+
+
+def test_create_s3_client_uses_minio_configuration(
+    monkeypatch,
+):
+    """MinIO 설정이 있으면 endpoint, 인증정보와 path-style을 적용한다."""
+
+    captured = {}
+    expected_client = object()
+
+    monkeypatch.setenv(
+        "MINIO_ENDPOINT",
+        "http://localhost:9000",
+    )
+    monkeypatch.setenv(
+        "MINIO_ROOT_USER",
+        "minio-user",
+    )
+    monkeypatch.setenv(
+        "MINIO_ROOT_PASSWORD",
+        "minio-password",
+    )
+
+    def fake_client(service_name, **kwargs):
+        captured["service_name"] = service_name
+        captured["kwargs"] = kwargs
+        return expected_client
+
+    monkeypatch.setattr(
+        storage.boto3,
+        "client",
+        fake_client,
+    )
+
+    result = storage._create_s3_client()
+
+    assert result is expected_client
+    assert captured["service_name"] == "s3"
+    assert captured["kwargs"]["endpoint_url"] == (
+        "http://localhost:9000"
+    )
+    assert captured["kwargs"]["aws_access_key_id"] == "minio-user"
+    assert captured["kwargs"]["aws_secret_access_key"] == (
+        "minio-password"
+    )
+    assert captured["kwargs"]["region_name"] == "us-east-1"
+    assert captured["kwargs"]["config"].s3 == {
+        "addressing_style": "path",
+    }
+
+
+@pytest.mark.parametrize(
+    ("missing_variable",),
+    [
+        ("MINIO_ROOT_USER",),
+        ("MINIO_ROOT_PASSWORD",),
+    ],
+)
+def test_create_s3_client_fails_when_minio_credentials_are_missing(
+    monkeypatch,
+    missing_variable,
+):
+    """MinIO endpoint만 있고 인증정보가 불완전하면 실패한다."""
+
+    monkeypatch.setenv(
+        "MINIO_ENDPOINT",
+        "http://localhost:9000",
+    )
+    monkeypatch.setenv(
+        "MINIO_ROOT_USER",
+        "minio-user",
+    )
+    monkeypatch.setenv(
+        "MINIO_ROOT_PASSWORD",
+        "minio-password",
+    )
+    monkeypatch.delenv(
+        missing_variable,
+        raising=False,
+    )
+
+    with pytest.raises(
+        S3ConfigurationError,
+        match="MINIO_ROOT_USER.*MINIO_ROOT_PASSWORD",
+    ):
+        storage._create_s3_client()
