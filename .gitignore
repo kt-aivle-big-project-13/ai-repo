@@ -6,3 +6,7 @@ __pycache__/
 Thumbs.db
 CLAUDE.md
 .claude/
+
+# SHAP local execution outputs
+.matplotlib-cache/
+shap_test_output/
