@@ -10,3 +10,6 @@ CLAUDE.md
 # SHAP local execution outputs
 .matplotlib-cache/
 shap_test_output/
+
+# 로컬 테스트용 모델·감사 데이터셋 (저장소에 커밋하지 않음)
+data/
