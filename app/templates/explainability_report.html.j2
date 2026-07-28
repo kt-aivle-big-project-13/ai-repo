@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>설명가능성 감사 리포트 — 감사 {{ meta.audit_id }}</title>
+<style>
+  :root { --ok:#1b7f4b; --warn:#92400e; --review:#b91c1c; --muted:#6b7280; --line:#e5e7eb; }
+  body { font-family: "Malgun Gothic","Apple SD Gothic Neo",sans-serif; color:#111827;
+         max-width: 880px; margin: 0 auto; padding: 40px 28px; line-height: 1.65; }
+  h1 { font-size: 1.7rem; margin-bottom: 4px; }
+  h2 { font-size: 1.25rem; margin-top: 2.2rem; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 1.05rem; margin-top: 1.4rem; }
+  .meta { color: var(--muted); font-size: .9rem; margin-bottom: 8px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .9rem; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; }
+  th { background: #f9fafb; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:999px; color:#fff; font-size:.8rem; font-weight:600; }
+  .PASS { background: var(--ok); } .WARNING { background: var(--warn); }
+  .REVIEW { background: var(--review); } .NOT_EVALUATED { background: var(--muted); }
+  .narrative { background:#f9fafb; border-left:3px solid #cbd5e1; padding:10px 14px; margin:10px 0; }
+  figure { margin: 16px 0; text-align:center; }
+  figure img { max-width: 100%; border:1px solid var(--line); }
+  figcaption { color: var(--muted); font-size: .85rem; margin-top: 6px; }
+  .small { color: var(--muted); font-size: .82rem; }
+</style>
+</head>
+<body>
+
+{% macro badge(status) %}<span class="badge {{ status }}">{{ status }}</span>{% endmacro %}
+{% macro num(value, digits=4) %}{% if value is none %}N/A{% else %}{{ "%.{}f".format(digits) % value }}{% endif %}{% endmacro %}
+
+<h1>설명가능성 감사 리포트</h1>
+<p class="meta">감사 ID {{ meta.audit_id }} · 분석기법 SHAP · 생성 {{ meta.generated_at }}</p>
+<p class="meta">모델 {{ meta.model_file }} · 데이터 {{ meta.data_file }} · 종합상태 {{ badge(meta.overall_status) }}</p>
+
+<h2>1. 감사 개요</h2>
+<h3>감사 목적 및 범위</h3>
+<div class="narrative">{{ narratives.overview_purpose }}</div>
+<h3>감사 대상 모델·데이터</h3>
+<table>
+  <tr><th>모델 입력변수 수</th><td class="num">{{ report.schema_validation.model_feature_count }}</td>
+      <th>데이터 컬럼 수</th><td class="num">{{ report.schema_validation.dataset_column_count }}</td></tr>
+  <tr><th>데이터 행 수</th><td class="num">{{ report.schema_validation.row_count }}</td>
+      <th>분석 표본크기</th><td class="num">{{ report.sampling.get("audit_sample_size") | int }}</td></tr>
+</table>
+<h3>감사 결과 요약</h3>
+<div class="narrative">{{ narratives.results_summary }}</div>
+<table>
+  <tr><th>지표</th><th>값</th><th>기준</th><th>상태</th></tr>
+  {% for m in report.metrics %}
+  <tr><td>{{ m.metric }}</td><td class="num">{{ num(m.value) }}</td>
+      <td class="num">{{ num(m.threshold) }}</td><td>{{ badge(m.status) }}</td></tr>
+  {% endfor %}
+</table>
+
+<h2>2. 모델 및 데이터 정보</h2>
+<table>
+  <tr><th>모델 파일</th><td>{{ meta.model_file }}</td><th>XGBoost 버전</th><td>{{ report.manifest.get("xgboost_version") }}</td></tr>
+  <tr><th>표본 추출</th><td colspan="3">무작위 {{ report.sampling.get("audit_sample_size") | int }}행 (시드 {{ report.sampling.get("random_seed") | int }})</td></tr>
+</table>
+<h3>모델 및 데이터의 한계</h3>
+<ul>{% for item in report.limitations %}<li>{{ item }}</li>{% endfor %}</ul>
+
+<h2>3. 분석 전 입력 스키마 검증</h2>
+<table>
+  <tr><th>검증 상태</th><td>{{ badge(report.schema_validation.status) }}</td></tr>
+  <tr><th>누락된 모델 입력변수</th><td>{{ report.schema_validation.missing_model_features or "없음" }}</td></tr>
+  <tr><th>누락된 필수 컬럼</th><td>{{ report.schema_validation.missing_required_columns or "없음" }}</td></tr>
+  <tr><th>중복 컬럼</th><td>{{ report.schema_validation.duplicate_columns or "없음" }}</td></tr>
+  <tr><th>감사 전용 컬럼</th><td class="small">{{ report.schema_validation.audit_only_columns | join(", ") or "없음" }}</td></tr>
+</table>
+
+<h2>4. 전역 설명 분석</h2>
+<h3>모델의 주요 판단 경향</h3>
+<div class="narrative">{{ narratives.global_interpretation }}</div>
+<table>
+  <tr><th>순위</th><th>변수</th><th>평균 |SHAP|</th><th>영향방향</th><th>기여비율</th><th>민감</th></tr>
+  {% for f in report.global_importance_top %}
+  <tr><td class="num">{{ f.rank }}</td><td>{{ f.feature }}</td>
+      <td class="num">{{ num(f.mean_abs_shap) }}</td><td>{{ f.direction }}</td>
+      <td class="num">{{ num(f.contribution_ratio, 3) }}</td><td>{{ "예" if f.is_sensitive else "아니오" }}</td></tr>
+  {% endfor %}
+</table>
+{% for fig in figures if fig.name in ("global_shap_top20.png", "explainability_dashboard.png") %}
+<figure><img src="{{ fig.data_uri }}" alt="{{ fig.title }}"><figcaption>{{ fig.title }}</figcaption></figure>
+{% endfor %}
+
+<h2>5. 설명 신뢰성 검증</h2>
+<div class="narrative">{{ narratives.reliability_summary }}</div>
+<table>
+  <tr><th>지표</th><th>값</th><th>기준</th><th>상태</th><th>부가 수치</th></tr>
+  {% for m in report.metrics %}
+  <tr><td>{{ m.metric }}</td><td class="num">{{ num(m.value) }}</td>
+      <td class="num">{{ num(m.threshold) }}</td><td>{{ badge(m.status) }}</td>
+      <td class="small">{% for k, v in m.extra.items() %}{{ k }}={{ num(v, 3) }}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+  {% endfor %}
+</table>
+{% for fig in figures if fig.name in ("fidelity_distribution.png", "permutation_vs_shap.png") %}
+<figure><img src="{{ fig.data_uri }}" alt="{{ fig.title }}"><figcaption>{{ fig.title }}</figcaption></figure>
+{% endfor %}
+
+<h2>6. 증적 및 재현성</h2>
+<table>
+  <tr><th>실행 ID</th><td>{{ report.manifest.get("run_id") }}</td></tr>
+  <tr><th>생성 시각(UTC)</th><td>{{ report.manifest.get("generated_at_utc") }}</td></tr>
+  <tr><th>XGBoost 버전</th><td>{{ report.manifest.get("xgboost_version") }}</td></tr>
+  <tr><th>무작위 시드</th><td>{{ report.sampling.get("random_seed") | int }}</td></tr>
+</table>
+
+<h2>7. 종합 평가</h2>
+<div class="narrative">{{ narratives.overall_assessment }}</div>
+<p>종합상태: {{ badge(meta.overall_status) }}</p>
+
+<h2>부록 · 내부 평가기준</h2>
+<table>
+  <tr><th>기준 항목</th><th>값</th></tr>
+  {% for k, v in report.thresholds.items() %}
+  <tr><td>{{ k }}</td><td class="num">{{ num(v, 4) }}</td></tr>
+  {% endfor %}
+</table>
+
+<p class="small">본 리포트는 설명가능성(SHAP) 검증 결과에 한하며, 민감변수·대리변수의 집단별 영향은 별도의 편향진단 리포트에서 검토함.</p>
+
+</body>
+</html>
