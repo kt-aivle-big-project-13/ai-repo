@@ -72,13 +72,16 @@ def compute_attribute_fairness(
     excluded = [str(group) for group, n in counts.items() if n < min_group_size]
 
     group_stats: list[GroupStat] = []
+    raw_approval_rates: list[float] = []
     for group in kept:
         mask = (groups.astype(str) == group).to_numpy()
+        raw_rate = float(approved_bool[mask].mean())
+        raw_approval_rates.append(raw_rate)
         group_stats.append(
             GroupStat(
                 group=group,
                 n=int(mask.sum()),
-                approval_rate=round(float(approved_bool[mask].mean()), 4),
+                approval_rate=round(raw_rate, 4),
                 actual_default_rate=round(float(defaults[mask].mean()), 4),
             )
         )
@@ -103,10 +106,17 @@ def compute_attribute_fairness(
         y_pred=favorable_pred,
         sensitive_features=sensitive,
     )
+
     dp = _to_float(demographic_parity_difference(**metric_args))
     eo = _to_float(equal_opportunity_difference(**metric_args))
     eodds = _to_float(equalized_odds_difference(**metric_args))
 
+    # group_stats 계산 중 이미 구해둔 원시(반올림 전) 승인율을 재사용한다 — Fairlearn
+    # 을 다시 부르지 않고, 반올림된 값끼리 나누는 이중 반올림 오차도 피한다.
+    max_rate = max(raw_approval_rates)
+    proportional_parity = (
+        round(min(raw_approval_rates) / max_rate, 4) if max_rate > 0 else None
+    )
     note = None
     if None in (eo, eodds):
         note = "일부 집단에 정상 또는 연체 고객이 없어 해당 지표를 계산할 수 없음"
@@ -117,6 +127,7 @@ def compute_attribute_fairness(
         demographic_parity_difference=dp,
         equal_opportunity_difference=eo,
         equalized_odds_difference=eodds,
+        proportional_parity_ratio=proportional_parity,
         groups=group_stats,
         excluded_groups=excluded,
         note=note,

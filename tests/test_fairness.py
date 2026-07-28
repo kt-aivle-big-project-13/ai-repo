@@ -45,6 +45,7 @@ def test_fair_case_has_small_gaps():
 
     assert result.demographic_parity_difference < 0.05
     assert result.equalized_odds_difference < 0.05
+    assert result.proportional_parity_ratio > 0.95
 
 
 def test_group_stats_reported():
@@ -136,5 +137,62 @@ def test_metrics_are_json_serializable_numbers():
         "demographic_parity_difference",
         "equal_opportunity_difference",
         "equalized_odds_difference",
+        "proportional_parity_ratio",
     ):
         assert dumped[key] is None or isinstance(dumped[key], float)
+
+def test_proportional_parity_matches_manual_ratio():
+    """Proportional Parity 는 원본 approved 배열로 직접 구한 승인율의 min/max 비율과 일치한다.
+
+    구현이 반올림해서 돌려주는 result.groups 를 다시 가져다 비교하면 구현의 반올림
+    오차를 그대로 답으로 써버리는 순환 검증이 되므로, 원본 배열에서 별도로 계산한다.
+    """
+    defaults, approved, gender = _make_case(male_approval=0.9, female_approval=0.8)
+
+    result = compute_attribute_fairness(defaults, approved, gender, "성별")
+
+    m, f = (gender == "M").to_numpy(), (gender == "F").to_numpy()
+    rate_m, rate_f = approved[m].mean(), approved[f].mean()
+    manual_ratio = min(rate_m, rate_f) / max(rate_m, rate_f)
+
+    # 구현이 최종 비율을 소수 4자리로 반올림해 돌려주므로, 그 한 번의 반올림 오차
+    # (최대 5e-5)만 허용한다 — 그보다 크게 벗어나면 중간값(그룹별 승인율)을 먼저
+    # 반올림한 뒤 나누는 이중 반올림 버그가 재발했다는 뜻이다.
+    assert result.proportional_parity_ratio == pytest.approx(manual_ratio, abs=5e-5)
+
+def test_proportional_parity_deterministic_boundary_case():
+    """반올림에 의존하지 않는, 손으로 검산 가능한 결정론적 경계 케이스.
+
+    A집단 500명 전원 승인(1.0), B집단 500명 중 350명 승인(0.7) → 비율 정확히 0.7로
+    80% Rule 미만. 정수 카운트로 구성해 부동소수점/반올림 우연에 기대지 않는다.
+    """
+    n_per_group = 500
+    gender = pd.Series(["A"] * n_per_group + ["B"] * n_per_group)
+    approved = np.array([True] * n_per_group + [True] * 350 + [False] * 150)
+    defaults = np.zeros(n_per_group * 2, dtype=int)
+
+    result = compute_attribute_fairness(defaults, approved, gender, "성별")
+
+    assert result.proportional_parity_ratio == pytest.approx(0.7, abs=1e-9)
+    assert result.proportional_parity_ratio < 0.8
+
+def test_proportional_parity_below_80_percent_rule():
+    """승인율 격차가 크면 80% Rule(0.8) 미만으로 나온다."""
+    defaults, approved, gender = _make_case(male_approval=0.9, female_approval=0.5)
+
+    result = compute_attribute_fairness(defaults, approved, gender, "성별")
+
+    assert result.proportional_parity_ratio < 0.8
+
+
+def test_proportional_parity_none_when_no_one_approved():
+    """모든 유지 집단의 승인율이 0이면 비율을 정의할 수 없어 None 이다."""
+    n = 4000
+    defaults = np.random.default_rng(0).integers(0, 2, n)
+    gender = pd.Series(np.random.default_rng(1).choice(["M", "F"], n))
+    approved = np.zeros(n, dtype=bool)
+
+    result = compute_attribute_fairness(defaults, approved, gender, "성별")
+
+    assert result.status is FairnessStatus.COMPUTED
+    assert result.proportional_parity_ratio is None
