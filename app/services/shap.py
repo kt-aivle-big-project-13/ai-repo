@@ -1,5 +1,7 @@
 """SHAP 설명가능성 분석 서비스."""
 
+import json
+import logging
 import tempfile
 import numpy as np
 from copy import deepcopy
@@ -7,21 +9,36 @@ from pathlib import Path
 from typing import Any
 
 from app.schemas.shap import (
+    ArtifactFile,
+    FeatureImportance,
+    MetricDetail,
+    SchemaValidation,
     ShapAnalysisRequest,
     ShapAnalysisResponse,
+    ShapArtifacts,
     ShapKeyMetrics,
     ShapMetricResult,
+    ShapReport,
 )
 from app.services.shap_pipeline import (
     DEFAULT_CONFIG,
     run_shap_pipeline,
 )
-from app.services.storage import download_s3_object
+from app.services.storage import (
+    S3ConfigurationError,
+    S3UploadError,
+    download_s3_object,
+    get_configured_bucket,
+    upload_directory,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def build_pipeline_config(
     target_column: str,
     sensitive_features: list[str],
+    report_top_n: int = 20,
 ) -> dict[str, Any]:
     """백엔드 요청값을 SHAP 파이프라인 설정으로 변환한다."""
 
@@ -42,6 +59,7 @@ def build_pipeline_config(
 
     config = deepcopy(DEFAULT_CONFIG)
     config["target_column"] = normalized_target
+    config["report_top_n"] = int(report_top_n)
     config["sensitive_groups"] = {
         feature.lower(): [feature]
         for feature in normalized_sensitive_features
@@ -65,6 +83,7 @@ def analyze_local_files(
     config = build_pipeline_config(
         target_column=request.target_column,
         sensitive_features=request.sensitive_features,
+        report_top_n=request.report_top_n,
     )
 
     summary = run_shap_pipeline(
@@ -77,10 +96,10 @@ def analyze_local_files(
 
     key_metrics = summary["key_metrics"]
 
-    return ShapAnalysisResponse(
-        pipeline_status=summary["pipeline_status"],
-        overall_status=summary["overall_status"],
-        key_metrics=ShapKeyMetrics(
+    fields: dict[str, Any] = {
+        "pipeline_status": summary["pipeline_status"],
+        "overall_status": summary["overall_status"],
+        "key_metrics": ShapKeyMetrics(
             sensitive_contribution_ratio=_to_metric_result(
                 key_metrics["sensitive_contribution_ratio"],
                 metric="SENSITIVE_CONTRIB",
@@ -97,6 +116,29 @@ def analyze_local_files(
                 label="설명 충실성",
             ),
         ),
+    }
+
+    # include_report 일 때만 확장 필드를 채운다 (기존 계약 유지).
+    if request.include_report and "report" in summary:
+        fields["report"] = _to_report(summary["report"])
+
+    return ShapAnalysisResponse(**fields)
+
+
+def _to_report(payload: dict[str, Any]) -> ShapReport:
+    """파이프라인 report payload 를 응답 스키마로 변환한다."""
+
+    return ShapReport(
+        schema_validation=SchemaValidation(**payload["schema_validation"]),
+        metrics=[MetricDetail(**metric) for metric in payload["metrics"]],
+        global_importance_top=[
+            FeatureImportance(**feature)
+            for feature in payload["global_importance_top"]
+        ],
+        sampling=payload["sampling"],
+        thresholds=payload["thresholds"],
+        manifest=payload["manifest"],
+        limitations=payload["limitations"],
     )
 
 
@@ -125,6 +167,45 @@ def _to_metric_result(
         review_threshold=float(result["review_threshold"]),
         status=str(result["status"]),
     )
+
+
+def _persist_artifacts(
+    request: ShapAnalysisRequest,
+    response: ShapAnalysisResponse,
+    output_dir: Path,
+) -> ShapAnalysisResponse:
+    """산출물을 S3에 업로드하고 artifacts·상태를 채운 응답을 돌려준다.
+
+    업로드가 실패해도 report 는 그대로 두고 상태만 UPLOAD_FAILED 로 표시한다
+    (파이프라인은 결정적이라 동일 입력 재호출로 재생성할 수 있다).
+    """
+
+    try:
+        manifest_path = output_dir / "metadata" / "audit_manifest.json"
+        run_id = json.loads(manifest_path.read_text(encoding="utf-8"))["run_id"]
+        prefix = f"explainability/{request.audit_id}/{run_id}"
+        files = upload_directory(output_dir, prefix)
+        artifacts = ShapArtifacts(
+            bucket=get_configured_bucket(),
+            prefix=prefix,
+            files=[ArtifactFile(**file) for file in files],
+        )
+        return response.model_copy(
+            update={"artifacts": artifacts, "artifacts_status": "UPLOADED"}
+        )
+    except (
+        S3UploadError,
+        S3ConfigurationError,
+        OSError,
+        KeyError,
+        ValueError,
+    ) as exception:
+        logger.warning(
+            "SHAP 증적 업로드 실패: audit_id=%s (%s)",
+            request.audit_id,
+            exception,
+        )
+        return response.model_copy(update={"artifacts_status": "UPLOAD_FAILED"})
 
 
 def analyze_s3_request(
@@ -159,9 +240,14 @@ def analyze_s3_request(
             dataset_path,
         )
 
-        return analyze_local_files(
+        response = analyze_local_files(
             request=request,
             model_path=model_path,
             dataset_path=dataset_path,
             output_dir=output_dir,
         )
+
+        if not request.include_report:
+            return response
+
+        return _persist_artifacts(request, response, output_dir)
