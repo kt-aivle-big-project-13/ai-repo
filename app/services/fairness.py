@@ -103,9 +103,16 @@ def compute_attribute_fairness(
         y_pred=favorable_pred,
         sensitive_features=sensitive,
     )
+    
     dp = _to_float(demographic_parity_difference(**metric_args))
     eo = _to_float(equal_opportunity_difference(**metric_args))
     eodds = _to_float(equalized_odds_difference(**metric_args))
+
+    # group_stats 는 위에서 이미 kept 집단 전원에 대해 채워져 있으므로 그대로
+    # 재사용한다 — Fairlearn 을 다시 부르지 않고 승인율 min/max 비율만 구하면 된다.
+    approval_rates = [stat.approval_rate for stat in group_stats]
+    max_rate = max(approval_rates)
+    proportional_parity = round(min(approval_rates) / max_rate, 4) if max_rate > 0 else None
 
     note = None
     if None in (eo, eodds):
@@ -117,6 +124,7 @@ def compute_attribute_fairness(
         demographic_parity_difference=dp,
         equal_opportunity_difference=eo,
         equalized_odds_difference=eodds,
+        proportional_parity_ratio=proportional_parity,
         groups=group_stats,
         excluded_groups=excluded,
         note=note,

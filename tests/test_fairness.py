@@ -138,3 +138,36 @@ def test_metrics_are_json_serializable_numbers():
         "equalized_odds_difference",
     ):
         assert dumped[key] is None or isinstance(dumped[key], float)
+
+def test_proportional_parity_matches_manual_ratio():
+    """Proportional Parity 는 집단별 승인율의 min/max 비율과 일치한다."""
+    defaults, approved, gender = _make_case(male_approval=0.9, female_approval=0.8)
+
+    result = compute_attribute_fairness(defaults, approved, gender, "성별")
+
+    rates = {stat.group: stat.approval_rate for stat in result.groups}
+    manual_ratio = min(rates.values()) / max(rates.values())
+
+    assert result.proportional_parity_ratio == pytest.approx(manual_ratio, abs=0.001)
+
+
+def test_proportional_parity_below_80_percent_rule():
+    """승인율 격차가 크면 80% Rule(0.8) 미만으로 나온다."""
+    defaults, approved, gender = _make_case(male_approval=0.9, female_approval=0.5)
+
+    result = compute_attribute_fairness(defaults, approved, gender, "성별")
+
+    assert result.proportional_parity_ratio < 0.8
+
+
+def test_proportional_parity_none_when_no_one_approved():
+    """모든 유지 집단의 승인율이 0이면 비율을 정의할 수 없어 None 이다."""
+    n = 4000
+    defaults = np.random.default_rng(0).integers(0, 2, n)
+    gender = pd.Series(np.random.default_rng(1).choice(["M", "F"], n))
+    approved = np.zeros(n, dtype=bool)
+
+    result = compute_attribute_fairness(defaults, approved, gender, "성별")
+
+    assert result.status is FairnessStatus.COMPUTED
+    assert result.proportional_parity_ratio is None

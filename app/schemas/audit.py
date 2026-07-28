@@ -20,11 +20,12 @@ class ThresholdRequest(BaseModel):
 
 
 class FairnessMetricValues(BaseModel):
-    """보호속성 하나의 지표 3종을 백엔드 FairnessMetricCode 키로 담는다."""
+    """보호속성 하나의 지표를 백엔드 FairnessMetricCode 키로 담는다."""
 
     DEMOGRAPHIC_PARITY: float | None
     EQUAL_OPPORTUNITY: float | None
     EQUALIZED_ODDS: float | None
+    PROPORTIONAL_PARITY: float | None
 
 
 class AuditRunResponse(BaseModel):

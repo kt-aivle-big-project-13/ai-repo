@@ -41,6 +41,14 @@ class AttributeFairness(BaseModel):
         default=None,
         description="정상 고객 오거절률·연체 고객 오승인률의 집단 간 최대 차이 중 큰 값",
     )
+    proportional_parity_ratio: float | None = Field(
+        default=None,
+        description=(
+            "Proportional Parity(Disparate Impact) — 집단별 승인율 중 "
+            "최솟값/최댓값 비율. 0.8 이상이면 80% Rule 충족(다른 세 지표와 달리 "
+            "0이 아닌 1에 가까울수록 공정)"
+        ),
+    )
     groups: list[GroupStat] = Field(default_factory=list)
     excluded_groups: list[str] = Field(
         default_factory=list, description="표본 부족으로 계산에서 제외된 집단"
