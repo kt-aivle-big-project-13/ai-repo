@@ -1,4 +1,4 @@
-"""Fairlearn 공정성 지표 계산 (이슈 #6, Proportional Parity 추가).
+"""Fairlearn 공정성 지표 계산 (이슈 #6, Proportional/FDR/FOR/FPR Parity 추가).
 
 실제 연체 여부와 모델 예측(승인·거절)을 성별·연령대 집단별로 비교해 지표를
 계산한다:
@@ -7,10 +7,20 @@
 - Equal Opportunity Difference — 정상 고객(연체 안 함)의 집단 간 승인율 최대 차이
 - Equalized Odds Difference — 정상 고객 오거절률 차이와 연체 고객 오승인률 차이 중 큰 값
 - Proportional Parity Ratio(Disparate Impact) — 집단별 승인율 min/max 비율.
-  Fairlearn 에는 없는 지표라 위 세 개와 달리 group_stats 의 승인율을 직접
-  비교해서 구한다. 앞의 세 지표와 달리 0이 아닌 1에 가까울수록 공정하다
-  (0.8 이상이면 "80% Rule" 충족).
-  """
+  Fairlearn 에는 없는 지표라 group_stats 의 승인율을 직접 비교해서 구한다.
+  다른 지표와 달리 0이 아닌 1에 가까울수록 공정하다(0.8 이상이면 "80% Rule" 충족).
+- FPR/FDR/FOR Parity — 예측 결과를 분모로 삼는 조건부 지표라 Fairlearn 에 없어
+  confusion matrix(TP/FP/TN/FN)를 직접 계산한다. 셋 다 집단 간 최대-최소 격차이며
+  0에 가까울수록 공정하다.
+  - FPR(False Positive Rate) = FP/(FP+TN) — 실제 연체 고객 중 오승인 비율
+  - FDR(False Discovery Rate) = FP/(FP+TP) — 승인된 고객 중 오승인(실제 연체) 비율
+  - FOR(False Omission Rate) = FN/(FN+TN) — 거절된 고객 중 오거절(실제 정상) 비율
+
+이 도메인은 라벨이 1=연체, 예측 1=거절로 되어 있다. Fairlearn 지표는 양성(1)을
+"유리한 결과"로 보고 계산하므로, 그대로 넣으면 거절·연체 관점의 값이 나와 의미가
+어긋난다. 그래서 favorable(승인=1, 정상=1) 관점으로 뒤집어 넣는다 — 이러면 지표들이
+위 정의와 정확히 일치하고, 여신 심사의 표준 관례(양성 = 승인)와도 맞는다.
+"""
 
 import numpy as np
 import pandas as pd
@@ -41,6 +51,66 @@ def _to_float(value: float) -> float | None:
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return None
     return round(float(value), 4)
+
+
+def _confusion_counts(
+    actual_favorable: np.ndarray, predicted_favorable: np.ndarray
+) -> tuple[int, int, int, int]:
+    """actual/predicted favorable(승인=1) 불리언 배열에서 TP/FP/TN/FN 개수를 센다."""
+    tp = int((actual_favorable & predicted_favorable).sum())
+    fp = int((~actual_favorable & predicted_favorable).sum())
+    tn = int((~actual_favorable & ~predicted_favorable).sum())
+    fn = int((actual_favorable & ~predicted_favorable).sum())
+    return tp, fp, tn, fn
+
+
+def _safe_rate(numerator: int, denominator: int) -> float | None:
+    """분모가 0이면(해당 집단에 그 조건의 표본이 아예 없음) 정의되지 않은 값으로 None."""
+    return numerator / denominator if denominator > 0 else None
+
+
+def _max_min_gap(values: list[float | None]) -> float | None:
+    """정의된(None 아닌) 값들의 최대-최소 격차. Fairlearn 의 *_difference 와 같은 정의.
+
+    정의된 값이 2개 미만이면 비교 자체가 불가능하므로 None.
+    """
+    defined = [value for value in values if value is not None]
+    if len(defined) < 2:
+        return None
+    return round(max(defined) - min(defined), 4)
+
+
+def _predictive_parity_gaps(
+    favorable_label: np.ndarray,
+    favorable_pred: np.ndarray,
+    sensitive: np.ndarray,
+) -> tuple[float | None, float | None, float | None]:
+    """그룹별 FPR/FDR/FOR 을 구해 각각 그룹 간 최대-최소 격차(Parity)를 돌려준다.
+
+    Fairlearn 은 실제 라벨 기준 지표(TPR/FPR을 묶은 equalized odds 등)만 제공하고,
+    예측 라벨을 분모로 삼는 FDR·FOR, 그리고 FPR 단독 값은 없어 직접 계산한다.
+
+    - FPR(False Positive Rate) = FP/(FP+TN) — 실제 연체 고객 중 오승인 비율
+    - FDR(False Discovery Rate) = FP/(FP+TP) — 승인된 고객 중 오승인(실제 연체) 비율
+    - FOR(False Omission Rate) = FN/(FN+TN) — 거절된 고객 중 오거절(실제 정상) 비율
+
+    한 집단이라도 분모가 0이면(예: 그 집단에 연체 고객이 아예 없음) 그 집단에서는
+    해당 지표가 정의되지 않아 격차 계산에서 제외한다.
+    """
+    actual_favorable = favorable_label.astype(bool)
+    predicted_favorable = favorable_pred.astype(bool)
+
+    fprs: list[float | None] = []
+    fdrs: list[float | None] = []
+    fors: list[float | None] = []
+    for group in pd.unique(sensitive):
+        mask = sensitive == group
+        tp, fp, tn, fn = _confusion_counts(actual_favorable[mask], predicted_favorable[mask])
+        fprs.append(_safe_rate(fp, fp + tn))
+        fdrs.append(_safe_rate(fp, fp + tp))
+        fors.append(_safe_rate(fn, fn + tn))
+
+    return _max_min_gap(fprs), _max_min_gap(fdrs), _max_min_gap(fors)
 
 
 def compute_attribute_fairness(
@@ -105,7 +175,6 @@ def compute_attribute_fairness(
         y_pred=favorable_pred,
         sensitive_features=sensitive,
     )
-
     dp = _to_float(demographic_parity_difference(**metric_args))
     eo = _to_float(equal_opportunity_difference(**metric_args))
     eodds = _to_float(equalized_odds_difference(**metric_args))
@@ -116,8 +185,13 @@ def compute_attribute_fairness(
     proportional_parity = (
         round(min(raw_approval_rates) / max_rate, 4) if max_rate > 0 else None
     )
+
+    fpr_parity, fdr_parity, for_parity = _predictive_parity_gaps(
+        favorable_label, favorable_pred, sensitive
+    )
+
     note = None
-    if None in (eo, eodds):
+    if None in (eo, eodds, fpr_parity, fdr_parity, for_parity):
         note = "일부 집단에 정상 또는 연체 고객이 없어 해당 지표를 계산할 수 없음"
 
     return AttributeFairness(
@@ -127,6 +201,9 @@ def compute_attribute_fairness(
         equal_opportunity_difference=eo,
         equalized_odds_difference=eodds,
         proportional_parity_ratio=proportional_parity,
+        fpr_parity_difference=fpr_parity,
+        fdr_parity_difference=fdr_parity,
+        for_parity_difference=for_parity,
         groups=group_stats,
         excluded_groups=excluded,
         note=note,
