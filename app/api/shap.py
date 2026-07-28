@@ -25,6 +25,7 @@ router = APIRouter(
 @router.post(
     "/analyze",
     response_model=ShapAnalysisResponse,
+    response_model_exclude_unset=True,
     responses={
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "요청값 또는 SHAP 입력 파일 검증 실패",

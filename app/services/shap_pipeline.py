@@ -747,6 +747,152 @@ def overall_status(statuses: list[str]) -> str:
     return "PASS"
 
 
+def _finite_or_none(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def build_report_payload(
+    global_df: pd.DataFrame,
+    schema: dict[str, Any],
+    sensitive_summary: dict[str, Any],
+    stability_summary: dict[str, Any],
+    fidelity_summary: dict[str, Any],
+    permutation_summary: dict[str, Any],
+    additivity_summary: dict[str, Any],
+    manifest_meta: dict[str, str],
+    config: dict[str, Any],
+    audit_sample_size: int,
+    dataset_row_count: int,
+) -> dict[str, Any]:
+    """이미 계산된 프레임·요약을 리포트용 구조화 payload 로 재조립한다.
+
+    새 계산은 하지 않는다. 전역중요도는 상위 `report_top_n` 만 인라인으로 담고,
+    전체는 산출물 CSV 로 남는다.
+    """
+    thresholds = config["thresholds"]
+    top_n = int(config.get("report_top_n", 20))
+    top = global_df.head(top_n)
+
+    global_importance_top = [
+        {
+            "rank": int(row["rank"]),
+            "feature": str(row["feature"]),
+            "mean_abs_shap": float(row["mean_abs_shap"]),
+            "mean_signed_shap": float(row["mean_signed_shap"]),
+            "contribution_ratio": _finite_or_none(row["contribution_ratio"]),
+            "direction": (
+                "RISK_INCREASE"
+                if float(row["mean_signed_shap"]) > 0
+                else "RISK_DECREASE"
+            ),
+            "is_sensitive": bool(row["is_sensitive"]),
+            "sensitive_group": (
+                (str(row["sensitive_group"]) or None)
+                if pd.notna(row.get("sensitive_group"))
+                else None
+            ),
+        }
+        for _, row in top.iterrows()
+    ]
+
+    metrics = [
+        {
+            "metric": "GLOBAL_STABILITY",
+            "value": _finite_or_none(stability_summary["mean_spearman"]),
+            "threshold": thresholds["global_stability_spearman_min"],
+            "review_threshold": thresholds["global_stability_spearman_review_min"],
+            "status": stability_summary["status"],
+            "extra": {
+                "mean_top20_jaccard": float(stability_summary["mean_top20_jaccard"]),
+                "repeats": float(stability_summary["repeats"]),
+            },
+        },
+        {
+            "metric": "FIDELITY",
+            "value": _finite_or_none(fidelity_summary["value"]),
+            "threshold": thresholds["explanation_fidelity_min"],
+            "review_threshold": thresholds["explanation_fidelity_review_min"],
+            "status": fidelity_summary["status"],
+            "extra": {
+                "margin_reconstruction_r2": float(
+                    fidelity_summary["margin_reconstruction_r2"]
+                ),
+                "margin_reconstruction_mae": float(
+                    fidelity_summary["margin_reconstruction_mae"]
+                ),
+                "top_k": float(fidelity_summary["top_k"]),
+            },
+        },
+        {
+            "metric": "SENSITIVE_CONTRIB",
+            "value": _finite_or_none(sensitive_summary["value"]),
+            "threshold": sensitive_summary["threshold"],
+            "review_threshold": sensitive_summary["review_threshold"],
+            "status": sensitive_summary["status"],
+            "extra": {},
+        },
+        {
+            "metric": "SHAP_ADDITIVITY",
+            "value": _finite_or_none(additivity_summary["max_absolute_error"]),
+            "threshold": additivity_summary["threshold"],
+            "review_threshold": None,
+            "status": additivity_summary["status"],
+            "extra": {
+                "mean_absolute_error": float(additivity_summary["mean_absolute_error"]),
+                "sample_size": float(additivity_summary["sample_size"]),
+            },
+        },
+        {
+            "metric": "PERMUTATION_ALIGNMENT",
+            "value": _finite_or_none(permutation_summary["spearman"]),
+            "threshold": thresholds["permutation_spearman_min"],
+            "review_threshold": None,
+            "status": permutation_summary["status"],
+            "extra": {
+                "top20_jaccard": float(permutation_summary["top20_jaccard"]),
+                "baseline_auc": float(permutation_summary["baseline_auc"]),
+                "sample_size": float(permutation_summary["sample_size"]),
+            },
+        },
+    ]
+
+    schema_validation = {
+        "status": schema["status"],
+        "row_count": int(schema["row_count"]),
+        "model_feature_count": int(schema["model_feature_count"]),
+        "dataset_column_count": int(schema["dataset_column_count"]),
+        "missing_model_features": list(schema["missing_model_features"]),
+        "missing_required_columns": list(schema["missing_required_columns"]),
+        "duplicate_columns": list(schema["duplicate_columns"]),
+        "audit_only_columns": list(schema["audit_only_columns"]),
+    }
+
+    sampling = {
+        "audit_sample_size": float(audit_sample_size),
+        "dataset_row_count": float(dataset_row_count),
+        "max_shap_rows": float(config["max_shap_rows"]),
+        "max_permutation_rows": float(config["max_permutation_rows"]),
+        "permutation_repeats": float(config["permutation_repeats"]),
+        "stability_repeats": float(config["stability_repeats"]),
+        "random_seed": float(config["random_seed"]),
+        "report_top_n": float(top_n),
+    }
+
+    return {
+        "schema_validation": schema_validation,
+        "metrics": metrics,
+        "global_importance_top": global_importance_top,
+        "sampling": sampling,
+        "thresholds": {key: float(value) for key, value in thresholds.items()},
+        "manifest": dict(manifest_meta),
+        "limitations": [],
+    }
+
+
 def run_shap_pipeline(
     model_path: Path,
     data_path: Path,
@@ -869,8 +1015,7 @@ def run_shap_pipeline(
     write_json(output / "summary" / "explainability_summary.json", summary)
     create_figures(ctx, global_df, permutation_df, sensitive_df, fidelity_df, kpis)
 
-    generated_files = [str(p.relative_to(output)) for p in sorted(output.rglob("*")) if p.is_file()]
-    manifest = {
+    manifest_meta = {
         "run_id": f"shap_audit_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "model_file": model_path.name,
@@ -878,7 +1023,26 @@ def run_shap_pipeline(
         "config_file": "runtime request",
         "xgboost_version": xgb.__version__,
         "python_version": sys.version,
-        "generated_files": generated_files,
     }
+
+    report_payload = build_report_payload(
+        global_df=global_df,
+        schema=schema,
+        sensitive_summary=sensitive_summary,
+        stability_summary=stability_summary,
+        fidelity_summary=fidelity_summary,
+        permutation_summary=permutation_summary,
+        additivity_summary=shap_result["additivity"],
+        manifest_meta=manifest_meta,
+        config=config,
+        audit_sample_size=len(shap_result["ids"]),
+        dataset_row_count=len(raw),
+    )
+    report_payload["limitations"] = summary["limitations"]
+    write_json(output / "summary" / "report_payload.json", report_payload)
+    summary["report"] = report_payload
+
+    generated_files = [str(p.relative_to(output)) for p in sorted(output.rglob("*")) if p.is_file()]
+    manifest = {**manifest_meta, "generated_files": generated_files}
     write_json(output / "metadata" / "audit_manifest.json", manifest)
     return summary

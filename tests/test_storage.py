@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import app.services.storage as storage
-from app.services.storage import S3ConfigurationError
+from app.services.storage import S3ConfigurationError, S3UploadError
 
 
 def test_download_s3_object(monkeypatch, tmp_path):
@@ -203,3 +203,85 @@ def test_create_s3_client_fails_when_minio_credentials_are_missing(
         match="MINIO_ROOT_USER.*MINIO_ROOT_PASSWORD",
     ):
         storage._create_s3_client()
+
+
+def test_upload_s3_object(monkeypatch, tmp_path):
+    """설정된 버킷과 Key로 파일을 업로드한다."""
+
+    calls = []
+
+    class FakeS3Client:
+        def upload_file(self, source, bucket, key):
+            calls.append((source, bucket, key))
+
+    monkeypatch.setenv("AWS_S3_BUCKET", "test-audit-bucket")
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: FakeS3Client())
+
+    source = tmp_path / "report.csv"
+    source.write_text("x", encoding="utf-8")
+
+    key = storage.upload_s3_object(source, "reports/report.csv")
+
+    assert key == "reports/report.csv"
+    assert calls == [(str(source), "test-audit-bucket", "reports/report.csv")]
+
+
+def test_upload_directory_uploads_all_files_with_prefix(monkeypatch, tmp_path):
+    """디렉터리 전체를 접두사 아래로 올리고 종류를 판정한다."""
+
+    class FakeS3Client:
+        def upload_file(self, source, bucket, key):
+            pass
+
+    monkeypatch.setenv("AWS_S3_BUCKET", "bucket")
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: FakeS3Client())
+
+    output = tmp_path / "outputs"
+    (output / "global").mkdir(parents=True)
+    (output / "global" / "importance.csv").write_text("x", encoding="utf-8")
+    (output / "figures").mkdir()
+    (output / "figures" / "chart.png").write_bytes(b"x")
+    (output / "summary.json").write_text("{}", encoding="utf-8")
+
+    result = storage.upload_directory(output, "explainability/1/run/")
+
+    keys = {item["s3_key"] for item in result}
+    assert keys == {
+        "explainability/1/run/global/importance.csv",
+        "explainability/1/run/figures/chart.png",
+        "explainability/1/run/summary.json",
+    }
+    kinds = {item["name"]: item["kind"] for item in result}
+    assert kinds["global/importance.csv"] == "table"
+    assert kinds["figures/chart.png"] == "figure"
+    assert kinds["summary.json"] == "json"
+
+
+def test_upload_fails_when_bucket_is_missing(monkeypatch, tmp_path):
+    """버킷 설정이 없으면 업로드 전에 실패한다."""
+
+    monkeypatch.delenv("AWS_S3_BUCKET", raising=False)
+    source = tmp_path / "report.csv"
+    source.write_text("x", encoding="utf-8")
+
+    with pytest.raises(S3ConfigurationError, match="AWS_S3_BUCKET"):
+        storage.upload_s3_object(source, "reports/report.csv")
+
+
+def test_upload_raises_on_client_error(monkeypatch, tmp_path):
+    """업로드 호출이 실패하면 S3UploadError로 감싼다."""
+
+    from botocore.exceptions import ClientError
+
+    class FakeS3Client:
+        def upload_file(self, source, bucket, key):
+            raise ClientError({"Error": {"Code": "500"}}, "PutObject")
+
+    monkeypatch.setenv("AWS_S3_BUCKET", "bucket")
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: FakeS3Client())
+
+    source = tmp_path / "report.csv"
+    source.write_text("x", encoding="utf-8")
+
+    with pytest.raises(S3UploadError):
+        storage.upload_s3_object(source, "reports/report.csv")
