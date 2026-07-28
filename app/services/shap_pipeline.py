@@ -722,8 +722,8 @@ def create_figures(
             display = f"{value:.3f}"
         color = {
             "PASS": "#23a56a",
-            "WARNING": "#f2aa16",
-            "REVIEW": "#e36b2c",
+            "WARNING": "#92400E",
+            "REVIEW": "#B91C1C",
             "NOT_EVALUATED": "#8992a3",
         }.get(item["status"], "#8992a3")
         ax.axis("off")
