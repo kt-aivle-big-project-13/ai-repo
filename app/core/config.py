@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_timeout: float = 60.0
 
+    # 법령 조문 요약 임베딩 생성용 모델. API 키·엔드포인트는 위 LLM 설정을 공유한다.
+    openai_embedding_model: str = "text-embedding-3-small"
+
 
 @lru_cache
 def get_settings() -> Settings:
