@@ -103,3 +103,35 @@ def test_malformed_response_raises_request_error():
             settings=_settings(),
             client=_mock_client(handler),
         )
+
+
+def test_non_json_response_raises_request_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not json", headers={"content-type": "application/json"})
+
+    with pytest.raises(EmbeddingRequestError):
+        generate_embedding(
+            "텍스트",
+            settings=_settings(),
+            client=_mock_client(handler),
+        )
+
+
+def test_invalid_embedding_type_raises_request_error():
+    """embedding 필드가 숫자 리스트가 아니면(pydantic ValidationError) 422가 아닌 EmbeddingRequestError로 통일된다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "text-embedding-3-small",
+                "data": [{"index": 0, "embedding": "not-a-vector"}],
+            },
+        )
+
+    with pytest.raises(EmbeddingRequestError):
+        generate_embedding(
+            "텍스트",
+            settings=_settings(),
+            client=_mock_client(handler),
+        )

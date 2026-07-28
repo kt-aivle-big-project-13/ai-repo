@@ -6,6 +6,7 @@ httpx 로 OpenAI Embeddings 규격(`POST /embeddings`)을 얇게 감싼다. API
 """
 
 import httpx
+from pydantic import ValidationError
 
 from app.core.config import Settings, get_settings
 from app.schemas.embedding import EmbeddingGenerateResponse
@@ -67,6 +68,9 @@ def generate_embedding(
         ) from exception
     except httpx.HTTPError as exception:
         raise EmbeddingRequestError(f"임베딩 호출 중 네트워크 오류: {exception}") from exception
+    except ValueError as exception:
+        # response.json() 이 유효한 JSON 이 아닌 경우 (json.JSONDecodeError 는 ValueError 의 서브클래스).
+        raise EmbeddingRequestError(f"임베딩 응답이 올바른 JSON이 아닙니다: {exception}") from exception
     finally:
         if owns_client:
             client.close()
@@ -76,7 +80,10 @@ def generate_embedding(
     except (KeyError, IndexError, TypeError) as exception:
         raise EmbeddingRequestError(f"임베딩 응답 형식이 올바르지 않습니다: {data}") from exception
 
-    return EmbeddingGenerateResponse(
-        embedding=embedding,
-        model=data.get("model") or str(payload["model"]),
-    )
+    try:
+        return EmbeddingGenerateResponse(
+            embedding=embedding,
+            model=data.get("model") or str(payload["model"]),
+        )
+    except ValidationError as exception:
+        raise EmbeddingRequestError(f"임베딩 응답 형식이 올바르지 않습니다: {exception}") from exception
