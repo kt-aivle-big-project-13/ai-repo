@@ -36,6 +36,7 @@ def test_analyze_s3_request_downloads_files_and_cleans_temp_directory(
                     "label": "민감변수 기여비율",
                     "value": 0.0,
                     "threshold": 0.2,
+                    "review_threshold": 0.3,
                     "status": "PASS",
                 },
                 "global_explanation_stability": {
@@ -43,6 +44,7 @@ def test_analyze_s3_request_downloads_files_and_cleans_temp_directory(
                     "label": "전역 설명 안정성",
                     "value": 0.99,
                     "threshold": 0.7,
+                    "review_threshold": 0.5,
                     "status": "PASS",
                 },
                 "explanation_fidelity": {
@@ -50,6 +52,7 @@ def test_analyze_s3_request_downloads_files_and_cleans_temp_directory(
                     "label": "설명 충실성",
                     "value": 0.8,
                     "threshold": 0.5,
+                    "review_threshold": 0.3,
                     "status": "PASS",
                 },
             },
@@ -141,6 +144,7 @@ def test_non_finite_metric_value_is_converted_to_none(
         {
             "value": invalid_value,
             "threshold": 0.5,
+            "review_threshold": 0.3,
             "status": "NOT_EVALUATED",
         },
         metric="FIDELITY",

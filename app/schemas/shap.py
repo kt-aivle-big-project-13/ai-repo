@@ -1,6 +1,15 @@
 """SHAP 설명가능성 분석 요청·응답 스키마."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+ShapStatus = Literal[
+    "PASS",
+    "WARNING",
+    "REVIEW",
+    "NOT_EVALUATED",
+]
 
 
 class ShapAnalysisRequest(BaseModel):
@@ -20,7 +29,8 @@ class ShapMetricResult(BaseModel):
     label: str
     value: float | None
     threshold: float
-    status: str
+    review_threshold: float
+    status: ShapStatus
 
 
 class ShapKeyMetrics(BaseModel):
@@ -35,5 +45,5 @@ class ShapAnalysisResponse(BaseModel):
     """백엔드 ExplainabilityResultRequest와 동일한 응답."""
 
     pipeline_status: str
-    overall_status: str
+    overall_status: ShapStatus
     key_metrics: ShapKeyMetrics

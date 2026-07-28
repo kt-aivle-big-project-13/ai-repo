@@ -35,6 +35,7 @@ def test_analyze_shap_returns_backend_contract(monkeypatch):
                     label="민감변수 기여비율",
                     value=0.0647,
                     threshold=0.2,
+                    review_threshold=0.3,
                     status="PASS",
                 ),
                 global_explanation_stability=ShapMetricResult(
@@ -42,6 +43,7 @@ def test_analyze_shap_returns_backend_contract(monkeypatch):
                     label="전역 설명 안정성",
                     value=0.9996,
                     threshold=0.7,
+                    review_threshold=0.5,
                     status="PASS",
                 ),
                 explanation_fidelity=ShapMetricResult(
@@ -49,6 +51,7 @@ def test_analyze_shap_returns_backend_contract(monkeypatch):
                     label="설명 충실성",
                     value=0.4843,
                     threshold=0.5,
+                    review_threshold=0.3,
                     status="WARNING",
                 ),
             ),
@@ -84,6 +87,7 @@ def test_analyze_shap_returns_backend_contract(monkeypatch):
                 "label": "민감변수 기여비율",
                 "value": 0.0647,
                 "threshold": 0.2,
+                "review_threshold": 0.3,
                 "status": "PASS",
             },
             "global_explanation_stability": {
@@ -91,6 +95,7 @@ def test_analyze_shap_returns_backend_contract(monkeypatch):
                 "label": "전역 설명 안정성",
                 "value": 0.9996,
                 "threshold": 0.7,
+                "review_threshold": 0.5,
                 "status": "PASS",
             },
             "explanation_fidelity": {
@@ -98,6 +103,7 @@ def test_analyze_shap_returns_backend_contract(monkeypatch):
                 "label": "설명 충실성",
                 "value": 0.4843,
                 "threshold": 0.5,
+                "review_threshold": 0.3,
                 "status": "WARNING",
             },
         },
