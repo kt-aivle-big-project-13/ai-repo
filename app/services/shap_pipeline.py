@@ -52,9 +52,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "lime_num_samples": 1000,
     "thresholds": {
         "sensitive_contribution_ratio_max": 0.20,
+        "sensitive_contribution_ratio_review_max": 0.30,
         "explanation_fidelity_min": 0.50,
+        "explanation_fidelity_review_min": 0.30,
         "permutation_spearman_min": 0.50,
         "global_stability_spearman_min": 0.70,
+        "global_stability_spearman_review_min": 0.50,
         "lime_overlap_min": 0.50,
         "additivity_max_abs_error_max": 0.0001,
     },
@@ -109,16 +112,32 @@ def make_dirs(output: Path) -> None:
         (output / name).mkdir(parents=True, exist_ok=True)
 
 
-def status_min(value: float | None, threshold: float) -> str:
+def status_min(
+    value: float | None,
+    pass_threshold: float,
+    review_threshold: float | None = None,
+) -> str:
     if value is None or not np.isfinite(value):
         return "NOT_EVALUATED"
-    return "PASS" if value >= threshold else "WARNING"
+    if value >= pass_threshold:
+        return "PASS"
+    if review_threshold is not None and value < review_threshold:
+        return "REVIEW"
+    return "WARNING"
 
 
-def status_max(value: float | None, threshold: float) -> str:
+def status_max(
+    value: float | None,
+    pass_threshold: float,
+    review_threshold: float | None = None,
+) -> str:
     if value is None or not np.isfinite(value):
         return "NOT_EVALUATED"
-    return "PASS" if value <= threshold else "WARNING"
+    if value <= pass_threshold:
+        return "PASS"
+    if review_threshold is not None and value > review_threshold:
+        return "REVIEW"
+    return "WARNING"
 
 
 def prepare_model_frame(raw: pd.DataFrame, features: list[str], feature_types: list[str]) -> pd.DataFrame:
@@ -371,7 +390,14 @@ def global_stability(ctx: RunContext, shap_result: dict[str, Any]) -> tuple[pd.D
         "repeats": repeats,
         "mean_spearman": float(np.mean(correlations)),
         "mean_top20_jaccard": float(np.mean(jaccards)),
-        "status": status_min(float(np.mean(correlations)), ctx.config["thresholds"]["global_stability_spearman_min"]),
+        "review_threshold": ctx.config["thresholds"][
+            "global_stability_spearman_review_min"
+        ],
+        "status": status_min(
+            float(np.mean(correlations)),
+            ctx.config["thresholds"]["global_stability_spearman_min"],
+            ctx.config["thresholds"]["global_stability_spearman_review_min"],
+        ),
     }
     detail.to_csv(ctx.output / "global" / "global_stability.csv", index=False, encoding="utf-8-sig")
     write_json(ctx.output / "global" / "global_stability_summary.json", summary)
@@ -403,10 +429,18 @@ def sensitive_audit(
     sensitive_total = values[:, sensitive_mask].sum() if sensitive_mask.any() else 0.0
     ratio = sensitive_total / total if total else np.nan
     threshold = ctx.config["thresholds"]["sensitive_contribution_ratio_max"]
+    review_threshold = ctx.config["thresholds"][
+        "sensitive_contribution_ratio_review_max"
+    ]
     summary = {
         "value": float(ratio),
         "threshold": threshold,
-        "status": status_max(float(ratio), threshold),
+        "review_threshold": review_threshold,
+        "status": status_max(
+            float(ratio),
+            threshold,
+            review_threshold,
+        ),
         "note": "Direct SHAP contribution of model-input sensitive feature families only; proxy effects are not measured.",
     }
     detail.to_csv(ctx.output / "sensitive" / "sensitive_feature_audit.csv", index=False, encoding="utf-8-sig")
@@ -506,7 +540,14 @@ def apply_policy_and_fidelity(
         "value": fidelity_value,
         "metric": "median_absolute_contribution_coverage",
         "threshold": ctx.config["thresholds"]["explanation_fidelity_min"],
-        "status": status_min(fidelity_value, ctx.config["thresholds"]["explanation_fidelity_min"]),
+        "review_threshold": ctx.config["thresholds"][
+            "explanation_fidelity_review_min"
+        ],
+        "status": status_min(
+            fidelity_value,
+            ctx.config["thresholds"]["explanation_fidelity_min"],
+            ctx.config["thresholds"]["explanation_fidelity_review_min"],
+        ),
         "margin_reconstruction_r2": float(r2),
         "margin_reconstruction_mae": float(fidelity_df["absolute_margin_error"].mean()),
         "top_k": top_k,
@@ -679,7 +720,12 @@ def create_figures(
             display = f"{value:.4f}"
         else:
             display = f"{value:.3f}"
-        color = {"PASS": "#23a56a", "WARNING": "#f2aa16", "FAIL": "#d94848", "NOT_EVALUATED": "#8992a3"}.get(item["status"], "#8992a3")
+        color = {
+            "PASS": "#23a56a",
+            "WARNING": "#92400E",
+            "REVIEW": "#B91C1C",
+            "NOT_EVALUATED": "#8992a3",
+        }.get(item["status"], "#8992a3")
         ax.axis("off")
         ax.text(0.05, 0.75, item["label"], fontsize=11, transform=ax.transAxes)
         ax.text(0.05, 0.42, display, fontsize=22, fontweight="bold", transform=ax.transAxes)
@@ -694,8 +740,8 @@ def overall_status(statuses: list[str]) -> str:
     evaluated = [s for s in statuses if s != "NOT_EVALUATED"]
     if not evaluated:
         return "NOT_EVALUATED"
-    if "FAIL" in evaluated:
-        return "FAIL"
+    if "REVIEW" in evaluated:
+        return "REVIEW"
     if "WARNING" in evaluated or "NOT_EVALUATED" in statuses:
         return "WARNING"
     return "PASS"
@@ -777,6 +823,7 @@ def run_shap_pipeline(
             "label": "Sensitive contribution ratio",
             "value": sensitive_summary["value"],
             "threshold": sensitive_summary["threshold"],
+            "review_threshold": sensitive_summary["review_threshold"],
             "status": sensitive_summary["status"],
         },
         {
@@ -784,6 +831,7 @@ def run_shap_pipeline(
             "label": "Global explanation stability",
             "value": stability_summary["mean_spearman"],
             "threshold": config["thresholds"]["global_stability_spearman_min"],
+            "review_threshold": stability_summary["review_threshold"],
             "status": stability_summary["status"],
         },
         {
@@ -791,6 +839,7 @@ def run_shap_pipeline(
             "label": "Explanation fidelity",
             "value": fidelity_summary["value"],
             "threshold": fidelity_summary["threshold"],
+            "review_threshold": fidelity_summary["review_threshold"],
             "status": fidelity_summary["status"],
         },
     ]

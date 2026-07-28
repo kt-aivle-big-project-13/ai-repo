@@ -122,6 +122,7 @@ def _to_metric_result(
         label=label,
         value=value,
         threshold=float(result["threshold"]),
+        review_threshold=float(result["review_threshold"]),
         status=str(result["status"]),
     )
 
