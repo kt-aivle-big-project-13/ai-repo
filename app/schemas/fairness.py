@@ -24,9 +24,10 @@ class GroupStat(BaseModel):
 class AttributeFairness(BaseModel):
     """보호속성(성별·연령대 등) 하나의 공정성 지표.
 
-    세 지표는 모두 favorable(승인=유리) 관점의 집단 간 최대 격차이며 0에 가까울수록
-    공정하다. 표본이 부족해 계산할 수 없으면 status 가 insufficient_data 이고 지표는
-    모두 None 이다.
+    favorable(승인=유리) 관점으로 계산하며, proportional_parity_ratio 를 제외한
+    나머지는 모두 집단 간 최대 격차(difference)로 0에 가까울수록 공정하다.
+    proportional_parity_ratio 만 비율(ratio)이라 1에 가까울수록 공정하다. 표본이
+    부족해 계산할 수 없으면 status 가 insufficient_data 이고 지표는 모두 None 이다.
     """
 
     attribute: str
@@ -48,6 +49,18 @@ class AttributeFairness(BaseModel):
             "최솟값/최댓값 비율. 0.8 이상이면 80% Rule 충족(다른 세 지표와 달리 "
             "0이 아닌 1에 가까울수록 공정)"
         ),
+    )
+    fpr_parity_difference: float | None = Field(
+        default=None,
+        description="FPR(FP/(FP+TN)) 집단 간 최대-최소 격차 — 실제 연체 고객 중 오승인 비율",
+    )
+    fdr_parity_difference: float | None = Field(
+        default=None,
+        description="FDR(FP/(FP+TP)) 집단 간 최대-최소 격차 — 승인된 고객 중 오승인 비율",
+    )
+    for_parity_difference: float | None = Field(
+        default=None,
+        description="FOR(FN/(FN+TN)) 집단 간 최대-최소 격차 — 거절된 고객 중 오거절 비율",
     )
     groups: list[GroupStat] = Field(default_factory=list)
     excluded_groups: list[str] = Field(
