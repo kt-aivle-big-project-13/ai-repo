@@ -1,17 +1,16 @@
-"""Fairlearn 공정성 지표 3개 계산 (이슈 #6).
+"""Fairlearn 공정성 지표 계산 (이슈 #6, Proportional Parity 추가).
 
-실제 연체 여부와 모델 예측(승인·거절)을 성별·연령대 집단별로 비교해 지표 3개를
+실제 연체 여부와 모델 예측(승인·거절)을 성별·연령대 집단별로 비교해 지표를
 계산한다:
 
 - Demographic Parity Difference — 집단 간 승인율 최대 차이
 - Equal Opportunity Difference — 정상 고객(연체 안 함)의 집단 간 승인율 최대 차이
 - Equalized Odds Difference — 정상 고객 오거절률 차이와 연체 고객 오승인률 차이 중 큰 값
-
-이 도메인은 라벨이 1=연체, 예측 1=거절로 되어 있다. Fairlearn 지표는 양성(1)을
-"유리한 결과"로 보고 계산하므로, 그대로 넣으면 거절·연체 관점의 값이 나와 의미가
-어긋난다. 그래서 favorable(승인=1, 정상=1) 관점으로 뒤집어 넣는다 — 이러면 세 지표가
-위 정의와 정확히 일치하고, 여신 심사의 표준 관례(양성 = 승인)와도 맞는다.
-"""
+- Proportional Parity Ratio(Disparate Impact) — 집단별 승인율 min/max 비율.
+  Fairlearn 에는 없는 지표라 위 세 개와 달리 group_stats 의 승인율을 직접
+  비교해서 구한다. 앞의 세 지표와 달리 0이 아닌 1에 가까울수록 공정하다
+  (0.8 이상이면 "80% Rule" 충족).
+  """
 
 import numpy as np
 import pandas as pd

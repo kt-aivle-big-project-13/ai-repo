@@ -26,6 +26,9 @@ class FairnessMetricValues(BaseModel):
     EQUAL_OPPORTUNITY: float | None
     EQUALIZED_ODDS: float | None
     PROPORTIONAL_PARITY: float | None
+    FPR_PARITY: float | None
+    FDR_PARITY: float | None
+    FOR_PARITY: float | None
 
 
 class AuditRunResponse(BaseModel):

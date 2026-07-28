@@ -66,6 +66,9 @@ def _summarize_fairness(
             EQUAL_OPPORTUNITY=result.equal_opportunity_difference,
             EQUALIZED_ODDS=result.equalized_odds_difference,
             PROPORTIONAL_PARITY=result.proportional_parity_ratio,
+            FPR_PARITY=result.fpr_parity_difference,
+            FDR_PARITY=result.fdr_parity_difference,
+            FOR_PARITY=result.for_parity_difference,
         )
         for attribute, result in fairness_by_attribute.items()
     }
