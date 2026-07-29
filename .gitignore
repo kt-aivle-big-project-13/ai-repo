@@ -17,3 +17,7 @@ data/
 # Pytest local cache
 .pytest_cache/
 .pytest-tmp/
+
+# 로컬 참고 문서 (원격 미반영 — CLAUDE.md 는 위에서 이미 무시)
+/api-spec.md
+/외부-API-연동-유의사항.md
