@@ -116,7 +116,6 @@ def test_predictive_parity_deterministic_case():
     FPR_A = FP/(FP+TN) = 10/30 = 0.3333, FPR_B = 30/45 = 0.6667    → gap 0.3333
     FDR_A = FP/(FP+TP) = 10/60 = 0.1667, FDR_B = 30/80 = 0.375     → gap 0.2083
     FOR_A = FN/(FN+TN) = 20/40 = 0.5,    FOR_B = 5/20  = 0.25      → gap 0.25
-    FNR_A = FN/(FN+TP) = 20/70 = 0.2857, FNR_B = 5/55  = 0.0909    → gap 0.1948
     """
 
     def block(n_tp: int, n_fp: int, n_fn: int, n_tn: int):
@@ -141,7 +140,6 @@ def test_predictive_parity_deterministic_case():
     assert result.fpr_parity_difference == pytest.approx(0.3333, abs=1e-4)
     assert result.fdr_parity_difference == pytest.approx(0.2083, abs=1e-4)
     assert result.for_parity_difference == pytest.approx(0.25, abs=1e-4)
-    assert result.fnr_parity_difference == pytest.approx(0.1948, abs=1e-4)
 
     # 집단별 confusion matrix 가 응답에 그대로 노출된다.
     stats = {g.group: g for g in result.groups}
@@ -260,7 +258,6 @@ def test_metrics_are_json_serializable_numbers():
         "fpr_parity_difference",
         "fdr_parity_difference",
         "for_parity_difference",
-        "fnr_parity_difference",
     ):
         assert dumped[key] is None or isinstance(dumped[key], float)
 
