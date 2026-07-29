@@ -18,6 +18,7 @@ from app.schemas.shap import ShapAnalysisRequest, ShapReport
 from app.services import report_prompts
 from app.services.llm import complete
 from app.services.report_prompts import SYSTEM
+from app.services.report_pdf import PdfGenerationError, render_html_to_pdf
 from app.services.shap import analyze_local_files
 from app.services.storage import download_s3_object, upload_s3_object
 
@@ -158,16 +159,30 @@ def generate_explainability_report(request: ReportRequest) -> ReportResponse:
 
         run_id = report.manifest.get("run_id", f"report_{request.audit_id}")
         html_path = temporary_path / "report.html"
+        pdf_path = temporary_path / "report.pdf"
         html_path.write_text(html, encoding="utf-8")
 
-        report_key = (
-            f"explainability-reports/{request.audit_id}/{run_id}/report.html"
+        try:
+            render_html_to_pdf(html_path, pdf_path)
+        except (FileNotFoundError, PdfGenerationError) as exception:
+            raise ReportGenerationError(
+                "설명가능성 리포트 PDF 생성에 실패했습니다."
+            ) from exception
+
+        report_prefix = (
+            f"explainability-reports/{request.audit_id}/{run_id}"
         )
+
+        report_key = f"{report_prefix}/report.html"
+        pdf_report_key = f"{report_prefix}/report.pdf"
+
         upload_s3_object(html_path, report_key)
+        upload_s3_object(pdf_path, pdf_report_key)
 
         return ReportResponse(
             audit_id=request.audit_id,
             report_s3_key=report_key,
+            pdf_report_s3_key=pdf_report_key,
             format="html",
             overall_status=analysis.overall_status,
             generated_at=generated_at,

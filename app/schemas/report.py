@@ -17,10 +17,11 @@ class ReportRequest(BaseModel):
 
 
 class ReportResponse(BaseModel):
-    """생성된 리포트 산출물 참조."""
+    """생성된 HTML·PDF 리포트 산출물 참조."""
 
     audit_id: int
     report_s3_key: str
+    pdf_report_s3_key: str
     format: Literal["html"]
     overall_status: str
     generated_at: str

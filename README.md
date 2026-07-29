@@ -173,6 +173,26 @@ git commit -m "chore: update Python dependencies"
 python -m pip install -r requirements.txt
 ```
 
+### Playwright Chromium 추가 설치
+
+설명가능성 HTML 리포트를 PDF로 변환하려면 `requirements.txt` 설치 후
+Playwright가 사용하는 Chromium 브라우저를 별도로 설치해야 합니다.
+
+Windows 개발 환경:
+
+```powershell
+python -m playwright install chromium
+```
+
+Linux 배포 환경:
+
+```bash
+python -m playwright install --with-deps chromium
+```
+
+Playwright 패키지 버전이 변경되면 호환되는 브라우저도 달라질 수 있으므로,
+`requirements.txt`를 다시 설치한 뒤 위 명령을 다시 실행합니다.
+
 ---
 
 ## Git 제외 파일

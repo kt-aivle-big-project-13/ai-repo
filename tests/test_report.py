@@ -108,9 +108,18 @@ def _patch_common(monkeypatch, upload_sink: dict, complete_calls: list):
 
     monkeypatch.setattr(report_service, "complete", fake_complete)
 
+    def fake_render_html_to_pdf(html_path, pdf_path):
+        Path(pdf_path).write_bytes(b"%PDF-test")
+        return Path(pdf_path).resolve()
+
+    monkeypatch.setattr(
+        report_service,
+        "render_html_to_pdf",
+        fake_render_html_to_pdf,
+    )
+
     def fake_upload(source, key):
-        upload_sink["key"] = key
-        upload_sink["html"] = Path(source).read_text(encoding="utf-8")
+        upload_sink[key] = Path(source).read_bytes()
         return key
 
     monkeypatch.setattr(report_service, "upload_s3_object", fake_upload)
@@ -129,6 +138,10 @@ def test_generate_report_renders_and_uploads(monkeypatch):
     result = report_service.generate_explainability_report(_request(audit_id=42))
 
     assert result.report_s3_key == "explainability-reports/42/shap_audit_X/report.html"
+    assert (
+        result.pdf_report_s3_key
+        == "explainability-reports/42/shap_audit_X/report.pdf"
+    )
     assert result.format == "html"
     assert result.overall_status == "WARNING"
     assert result.generated_at
@@ -136,7 +149,8 @@ def test_generate_report_renders_and_uploads(monkeypatch):
     # 섹션별 5회 호출
     assert len(complete_calls) == 5
 
-    html = upload_sink["html"]
+    html = upload_sink[result.report_s3_key].decode("utf-8")
+    assert upload_sink[result.pdf_report_s3_key].startswith(b"%PDF-")
     assert "설명가능성 감사 리포트" in html
     assert "생성된 서술 문단" in html      # LLM 서술 삽입
     assert "EXT_SOURCE_3" in html          # 전역중요도 표
