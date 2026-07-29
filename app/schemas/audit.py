@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 
 from app.schemas.fairness import AttributeFairness
+from app.schemas.performance import PerformanceSummary
 from app.schemas.scoring import CalibrationSource, ThresholdInfo
 from app.schemas.validation import ValidationIssue
 
@@ -29,6 +30,7 @@ class FairnessMetricValues(BaseModel):
     FPR_PARITY: float | None
     FDR_PARITY: float | None
     FOR_PARITY: float | None
+    FNR_PARITY: float | None
 
 
 class AuditRunResponse(BaseModel):
@@ -46,6 +48,10 @@ class AuditRunResponse(BaseModel):
     n_customers: int
     approval_rate: float
     calibration_source: CalibrationSource
+
+    performance: PerformanceSummary = Field(
+        description="감사셋 전체의 모델 판별 성능 (AUC·정확도). 집단별 AUC 는 지표 상세에"
+    )
 
     fairness_by_attribute: dict[str, AttributeFairness] = Field(
         description="보호속성 컬럼명 → 지표 상세"

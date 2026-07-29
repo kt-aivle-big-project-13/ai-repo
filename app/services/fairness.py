@@ -9,12 +9,13 @@
 - Proportional Parity Ratio(Disparate Impact) — 집단별 승인율 min/max 비율.
   Fairlearn 에는 없는 지표라 group_stats 의 승인율을 직접 비교해서 구한다.
   다른 지표와 달리 0이 아닌 1에 가까울수록 공정하다(0.8 이상이면 "80% Rule" 충족).
-- FPR/FDR/FOR Parity — 예측 결과를 분모로 삼는 조건부 지표라 Fairlearn 에 없어
-  confusion matrix(TP/FP/TN/FN)를 직접 계산한다. 셋 다 집단 간 최대-최소 격차이며
-  0에 가까울수록 공정하다.
+- FPR/FDR/FOR/FNR Parity — 예측 결과·실제 라벨을 분모로 삼는 조건부 지표라
+  Fairlearn 에 없어 confusion matrix(TP/FP/TN/FN)를 직접 계산한다. 넷 다 집단 간
+  최대-최소 격차이며 0에 가까울수록 공정하다.
   - FPR(False Positive Rate) = FP/(FP+TN) — 실제 연체 고객 중 오승인 비율
   - FDR(False Discovery Rate) = FP/(FP+TP) — 승인된 고객 중 오승인(실제 연체) 비율
   - FOR(False Omission Rate) = FN/(FN+TN) — 거절된 고객 중 오거절(실제 정상) 비율
+  - FNR(False Negative Rate) = FN/(FN+TP) — 실제 정상 고객 중 오거절 비율
 
 이 도메인은 라벨이 1=연체, 예측 1=거절로 되어 있다. Fairlearn 지표는 양성(1)을
 "유리한 결과"로 보고 계산하므로, 그대로 넣으면 거절·연체 관점의 값이 나와 의미가
@@ -36,6 +37,7 @@ from app.schemas.fairness import (
     FairnessStatus,
     GroupStat,
 )
+from app.services.performance import group_auc
 from app.services.validation import (
     AGE_GROUP_COLUMN,
     GENDER_COLUMN,
@@ -80,54 +82,28 @@ def _max_min_gap(values: list[float | None]) -> float | None:
     return round(max(defined) - min(defined), 4)
 
 
-def _predictive_parity_gaps(
-    favorable_label: np.ndarray,
-    favorable_pred: np.ndarray,
-    sensitive: np.ndarray,
-) -> tuple[float | None, float | None, float | None]:
-    """그룹별 FPR/FDR/FOR 을 구해 각각 그룹 간 최대-최소 격차(Parity)를 돌려준다.
-
-    Fairlearn 은 실제 라벨 기준 지표(TPR/FPR을 묶은 equalized odds 등)만 제공하고,
-    예측 라벨을 분모로 삼는 FDR·FOR, 그리고 FPR 단독 값은 없어 직접 계산한다.
-
-    - FPR(False Positive Rate) = FP/(FP+TN) — 실제 연체 고객 중 오승인 비율
-    - FDR(False Discovery Rate) = FP/(FP+TP) — 승인된 고객 중 오승인(실제 연체) 비율
-    - FOR(False Omission Rate) = FN/(FN+TN) — 거절된 고객 중 오거절(실제 정상) 비율
-
-    한 집단이라도 분모가 0이면(예: 그 집단에 연체 고객이 아예 없음) 그 집단에서는
-    해당 지표가 정의되지 않아 격차 계산에서 제외한다.
-    """
-    actual_favorable = favorable_label.astype(bool)
-    predicted_favorable = favorable_pred.astype(bool)
-
-    fprs: list[float | None] = []
-    fdrs: list[float | None] = []
-    fors: list[float | None] = []
-    for group in pd.unique(sensitive):
-        mask = sensitive == group
-        tp, fp, tn, fn = _confusion_counts(actual_favorable[mask], predicted_favorable[mask])
-        fprs.append(_safe_rate(fp, fp + tn))
-        fdrs.append(_safe_rate(fp, fp + tp))
-        fors.append(_safe_rate(fn, fn + tn))
-
-    return _max_min_gap(fprs), _max_min_gap(fdrs), _max_min_gap(fors)
-
-
 def compute_attribute_fairness(
     actual_defaults: np.ndarray,
     approved: np.ndarray,
     group_series: pd.Series,
     attribute: str,
+    risk_scores: np.ndarray | None = None,
     min_group_size: int = MIN_GROUP_SIZE,
 ) -> AttributeFairness:
     """보호속성 하나에 대한 공정성 지표를 계산한다.
 
     표본이 `min_group_size` 미만인 집단은 계산에서 제외하고, 비교 가능한 집단이
-    2개 미만이면 insufficient_data 로 표시한다.
+    2개 미만이면 insufficient_data 로 표시한다. `risk_scores` 를 주면 집단별 AUC 도
+    함께 구한다(성능-공정성 비교용).
+
+    FPR/FDR/FOR/FNR Parity 는 집단별 confusion matrix 에서 파생한다. 한 집단이라도
+    분모가 0이면(예: 그 집단에 연체 고객이 아예 없음) 그 집단에서는 해당 지표가
+    정의되지 않아 격차 계산에서 제외한다.
     """
     defaults = np.asarray(actual_defaults, dtype=int)
     approved_bool = np.asarray(approved, dtype=bool)
     groups = pd.Series(group_series).reset_index(drop=True)
+    scores = None if risk_scores is None else np.asarray(risk_scores, dtype=float)
 
     present = groups.notna().to_numpy()
     defaults, approved_bool, groups = (
@@ -135,6 +111,8 @@ def compute_attribute_fairness(
         approved_bool[present],
         groups[present].reset_index(drop=True),
     )
+    if scores is not None:
+        scores = scores[present]
 
     counts = groups.value_counts()
     kept = [str(group) for group, n in counts.items() if n >= min_group_size]
@@ -142,16 +120,37 @@ def compute_attribute_fairness(
 
     group_stats: list[GroupStat] = []
     raw_approval_rates: list[float] = []
+    fprs: list[float | None] = []
+    fdrs: list[float | None] = []
+    fors: list[float | None] = []
+    fnrs: list[float | None] = []
     for group in kept:
         mask = (groups.astype(str) == group).to_numpy()
         raw_rate = float(approved_bool[mask].mean())
         raw_approval_rates.append(raw_rate)
+
+        # favorable(승인=유리) 관점 confusion matrix — 정상 승인=TP, 연체 승인=FP,
+        # 연체 거절=TN, 정상 거절=FN. 집단별 Parity 격차와 부록 근거에 함께 쓴다.
+        actual_favorable = defaults[mask] == 0
+        predicted_favorable = approved_bool[mask]
+        tp, fp, tn, fn = _confusion_counts(actual_favorable, predicted_favorable)
+
+        fprs.append(_safe_rate(fp, fp + tn))
+        fdrs.append(_safe_rate(fp, fp + tp))
+        fors.append(_safe_rate(fn, fn + tn))
+        fnrs.append(_safe_rate(fn, fn + tp))
+
         group_stats.append(
             GroupStat(
                 group=group,
                 n=int(mask.sum()),
                 approval_rate=round(raw_rate, 4),
                 actual_default_rate=round(float(defaults[mask].mean()), 4),
+                tp=tp,
+                fp=fp,
+                tn=tn,
+                fn=fn,
+                auc=None if scores is None else group_auc(defaults[mask], scores[mask]),
             )
         )
 
@@ -186,12 +185,14 @@ def compute_attribute_fairness(
         round(min(raw_approval_rates) / max_rate, 4) if max_rate > 0 else None
     )
 
-    fpr_parity, fdr_parity, for_parity = _predictive_parity_gaps(
-        favorable_label, favorable_pred, sensitive
-    )
+    # 그룹별 confusion matrix 에서 이미 구해둔 조건부 지표를 격차로 집계한다.
+    fpr_parity = _max_min_gap(fprs)
+    fdr_parity = _max_min_gap(fdrs)
+    for_parity = _max_min_gap(fors)
+    fnr_parity = _max_min_gap(fnrs)
 
     note = None
-    if None in (eo, eodds, fpr_parity, fdr_parity, for_parity):
+    if None in (eo, eodds, fpr_parity, fdr_parity, for_parity, fnr_parity):
         note = "일부 집단에 정상 또는 연체 고객이 없어 해당 지표를 계산할 수 없음"
 
     return AttributeFairness(
@@ -204,6 +205,7 @@ def compute_attribute_fairness(
         fpr_parity_difference=fpr_parity,
         fdr_parity_difference=fdr_parity,
         for_parity_difference=for_parity,
+        fnr_parity_difference=fnr_parity,
         groups=group_stats,
         excluded_groups=excluded,
         note=note,
@@ -216,11 +218,13 @@ def compute_fairness_metrics(
     protected_frame: pd.DataFrame,
     attributes: list[str] | None = None,
     min_group_size: int = MIN_GROUP_SIZE,
+    risk_scores: np.ndarray | None = None,
 ) -> FairnessResult:
     """전달받은 보호속성마다 같은 지표 계산을 적용한다.
 
     `attributes` 를 주지 않으면 감사 데이터의 성별·연령대 컬럼을 쓴다. 컬럼이
-    없는 보호속성은 insufficient_data 로 표시한다.
+    없는 보호속성은 insufficient_data 로 표시한다. `risk_scores` 를 주면 집단별
+    AUC 도 함께 구한다.
     """
     selected = attributes or [
         column for column in DEFAULT_PROTECTED_ATTRIBUTES if column in protected_frame.columns
@@ -240,7 +244,8 @@ def compute_fairness_metrics(
             approved,
             protected_frame[attribute],
             attribute,
-            min_group_size,
+            risk_scores=risk_scores,
+            min_group_size=min_group_size,
         )
 
     return FairnessResult(attributes=results)

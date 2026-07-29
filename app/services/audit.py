@@ -16,6 +16,7 @@ from app.schemas.fairness import AttributeFairness
 from app.schemas.scoring import ThresholdConfig, ThresholdMethod
 from app.schemas.validation import IssueLevel, ValidationIssue
 from app.services.fairness import compute_fairness_metrics
+from app.services.performance import compute_performance
 from app.services.scoring import actual_defaults, load_audit_frames, score_audit_dataset
 from app.services.validation import validate_audit_inputs
 
@@ -69,6 +70,7 @@ def _summarize_fairness(
             FPR_PARITY=result.fpr_parity_difference,
             FDR_PARITY=result.fdr_parity_difference,
             FOR_PARITY=result.for_parity_difference,
+            FNR_PARITY=result.fnr_parity_difference,
         )
         for attribute, result in fairness_by_attribute.items()
     }
@@ -103,12 +105,15 @@ def run_audit(
         validation_frame=validation_frame,
     )
 
+    defaults = actual_defaults(audit_frame)
     fairness = compute_fairness_metrics(
-        actual_defaults(audit_frame),
+        defaults,
         scoring.approved,
         audit_frame,
         attributes=_parse_sensitive_features(sensitive_features),
+        risk_scores=scoring.risk_scores,
     )
+    performance = compute_performance(defaults, scoring.risk_scores, scoring.approved)
 
     warnings = [
         issue
@@ -123,6 +128,7 @@ def run_audit(
         n_customers=scoring.summary.n_customers,
         approval_rate=scoring.summary.approval_rate,
         calibration_source=scoring.calibration_source,
+        performance=performance,
         fairness_by_attribute=fairness.attributes,
         fairness_summary=_summarize_fairness(fairness.attributes),
         warnings=warnings,
