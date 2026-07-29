@@ -17,7 +17,7 @@ class GroupStat(BaseModel):
 
     혼동행렬은 favorable(승인=유리) 관점이다: 정상 고객을 승인하면 TP, 연체
     고객을 승인하면 FP(오승인), 연체 고객을 거절하면 TN, 정상 고객을 거절하면
-    FN(오거절)이다. FPR/FDR/FOR/FNR Parity 는 이 값에서 파생된다.
+    FN(오거절)이다. FPR/FDR/FOR Parity 는 이 값에서 파생된다.
     """
 
     group: str
@@ -74,10 +74,6 @@ class AttributeFairness(BaseModel):
     for_parity_difference: float | None = Field(
         default=None,
         description="FOR(FN/(FN+TN)) 집단 간 최대-최소 격차 — 거절된 고객 중 오거절 비율",
-    )
-    fnr_parity_difference: float | None = Field(
-        default=None,
-        description="FNR(FN/(FN+TP)) 집단 간 최대-최소 격차 — 실제 정상 고객 중 오거절 비율",
     )
     groups: list[GroupStat] = Field(default_factory=list)
     excluded_groups: list[str] = Field(

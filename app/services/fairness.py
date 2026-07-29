@@ -9,13 +9,15 @@
 - Proportional Parity Ratio(Disparate Impact) — 집단별 승인율 min/max 비율.
   Fairlearn 에는 없는 지표라 group_stats 의 승인율을 직접 비교해서 구한다.
   다른 지표와 달리 0이 아닌 1에 가까울수록 공정하다(0.8 이상이면 "80% Rule" 충족).
-- FPR/FDR/FOR/FNR Parity — 예측 결과·실제 라벨을 분모로 삼는 조건부 지표라
-  Fairlearn 에 없어 confusion matrix(TP/FP/TN/FN)를 직접 계산한다. 넷 다 집단 간
+- FPR/FDR/FOR Parity — 예측 결과·실제 라벨을 분모로 삼는 조건부 지표라
+  Fairlearn 에 없어 confusion matrix(TP/FP/TN/FN)를 직접 계산한다. 셋 다 집단 간
   최대-최소 격차이며 0에 가까울수록 공정하다.
   - FPR(False Positive Rate) = FP/(FP+TN) — 실제 연체 고객 중 오승인 비율
   - FDR(False Discovery Rate) = FP/(FP+TP) — 승인된 고객 중 오승인(실제 연체) 비율
   - FOR(False Omission Rate) = FN/(FN+TN) — 거절된 고객 중 오거절(실제 정상) 비율
-  - FNR(False Negative Rate) = FN/(FN+TP) — 실제 정상 고객 중 오거절 비율
+
+  참고: FNR(=FN/(FN+TP)=1−TPR) Parity 는 favorable 관점에서 Equal Opportunity 격차와
+  항상 동일해 별도 지표로 두지 않는다.
 
 이 도메인은 라벨이 1=연체, 예측 1=거절로 되어 있다. Fairlearn 지표는 양성(1)을
 "유리한 결과"로 보고 계산하므로, 그대로 넣으면 거절·연체 관점의 값이 나와 의미가
@@ -96,7 +98,7 @@ def compute_attribute_fairness(
     2개 미만이면 insufficient_data 로 표시한다. `risk_scores` 를 주면 집단별 AUC 도
     함께 구한다(성능-공정성 비교용).
 
-    FPR/FDR/FOR/FNR Parity 는 집단별 confusion matrix 에서 파생한다. 한 집단이라도
+    FPR/FDR/FOR Parity 는 집단별 confusion matrix 에서 파생한다. 한 집단이라도
     분모가 0이면(예: 그 집단에 연체 고객이 아예 없음) 그 집단에서는 해당 지표가
     정의되지 않아 격차 계산에서 제외한다.
     """
@@ -123,7 +125,6 @@ def compute_attribute_fairness(
     fprs: list[float | None] = []
     fdrs: list[float | None] = []
     fors: list[float | None] = []
-    fnrs: list[float | None] = []
     for group in kept:
         mask = (groups.astype(str) == group).to_numpy()
         raw_rate = float(approved_bool[mask].mean())
@@ -138,7 +139,6 @@ def compute_attribute_fairness(
         fprs.append(_safe_rate(fp, fp + tn))
         fdrs.append(_safe_rate(fp, fp + tp))
         fors.append(_safe_rate(fn, fn + tn))
-        fnrs.append(_safe_rate(fn, fn + tp))
 
         group_stats.append(
             GroupStat(
@@ -189,10 +189,9 @@ def compute_attribute_fairness(
     fpr_parity = _max_min_gap(fprs)
     fdr_parity = _max_min_gap(fdrs)
     for_parity = _max_min_gap(fors)
-    fnr_parity = _max_min_gap(fnrs)
 
     note = None
-    if None in (eo, eodds, fpr_parity, fdr_parity, for_parity, fnr_parity):
+    if None in (eo, eodds, fpr_parity, fdr_parity, for_parity):
         note = "일부 집단에 정상 또는 연체 고객이 없어 해당 지표를 계산할 수 없음"
 
     return AttributeFairness(
@@ -205,7 +204,6 @@ def compute_attribute_fairness(
         fpr_parity_difference=fpr_parity,
         fdr_parity_difference=fdr_parity,
         for_parity_difference=for_parity,
-        fnr_parity_difference=fnr_parity,
         groups=group_stats,
         excluded_groups=excluded,
         note=note,

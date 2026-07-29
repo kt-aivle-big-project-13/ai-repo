@@ -70,7 +70,6 @@ def _summarize_fairness(
             FPR_PARITY=result.fpr_parity_difference,
             FDR_PARITY=result.fdr_parity_difference,
             FOR_PARITY=result.for_parity_difference,
-            FNR_PARITY=result.fnr_parity_difference,
         )
         for attribute, result in fairness_by_attribute.items()
     }
