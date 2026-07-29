@@ -70,6 +70,12 @@ def test_run_audit_end_to_end(audit_files):
     assert set(result.fairness_by_attribute) == {"CODE_GENDER", "AGE_GROUP"}
     assert set(result.fairness_summary) == {"CODE_GENDER", "AGE_GROUP"}
     assert hasattr(result.fairness_summary["CODE_GENDER"], "DEMOGRAPHIC_PARITY")
+    assert hasattr(result.fairness_summary["CODE_GENDER"], "FNR_PARITY")
+
+    # 성능 지표(AUC·정확도)와 집단별 AUC 가 함께 채워진다.
+    assert result.performance.accuracy is not None
+    gender_groups = result.fairness_by_attribute["CODE_GENDER"].groups
+    assert all(g.auc is not None for g in gender_groups)
 
 
 def test_run_audit_respects_sensitive_features(audit_files):

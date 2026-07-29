@@ -116,6 +116,7 @@ def test_predictive_parity_deterministic_case():
     FPR_A = FP/(FP+TN) = 10/30 = 0.3333, FPR_B = 30/45 = 0.6667    → gap 0.3333
     FDR_A = FP/(FP+TP) = 10/60 = 0.1667, FDR_B = 30/80 = 0.375     → gap 0.2083
     FOR_A = FN/(FN+TN) = 20/40 = 0.5,    FOR_B = 5/20  = 0.25      → gap 0.25
+    FNR_A = FN/(FN+TP) = 20/70 = 0.2857, FNR_B = 5/55  = 0.0909    → gap 0.1948
     """
 
     def block(n_tp: int, n_fp: int, n_fn: int, n_tn: int):
@@ -140,6 +141,12 @@ def test_predictive_parity_deterministic_case():
     assert result.fpr_parity_difference == pytest.approx(0.3333, abs=1e-4)
     assert result.fdr_parity_difference == pytest.approx(0.2083, abs=1e-4)
     assert result.for_parity_difference == pytest.approx(0.25, abs=1e-4)
+    assert result.fnr_parity_difference == pytest.approx(0.1948, abs=1e-4)
+
+    # 집단별 confusion matrix 가 응답에 그대로 노출된다.
+    stats = {g.group: g for g in result.groups}
+    assert (stats["A"].tp, stats["A"].fp, stats["A"].fn, stats["A"].tn) == (50, 10, 20, 20)
+    assert (stats["B"].tp, stats["B"].fp, stats["B"].fn, stats["B"].tn) == (50, 30, 5, 15)
 
 
 def test_predictive_parity_none_when_group_missing_outcome():
@@ -253,5 +260,37 @@ def test_metrics_are_json_serializable_numbers():
         "fpr_parity_difference",
         "fdr_parity_difference",
         "for_parity_difference",
+        "fnr_parity_difference",
     ):
         assert dumped[key] is None or isinstance(dumped[key], float)
+
+
+def test_group_auc_present_when_scores_given():
+    """risk_scores 를 주면 집단별 AUC 가 채워지고, 없으면 None 이다."""
+    defaults, approved, gender = _make_case()
+    rng = np.random.default_rng(3)
+    # 위험점수는 연체(1)일수록 높게 — 판별력이 있어 AUC 가 0.5 를 넘는다.
+    scores = rng.random(len(defaults)) * 0.3 + defaults * 0.4
+
+    without = compute_attribute_fairness(defaults, approved, gender, "성별")
+    assert all(g.auc is None for g in without.groups)
+
+    withscores = compute_attribute_fairness(
+        defaults, approved, gender, "성별", risk_scores=scores
+    )
+    for g in withscores.groups:
+        assert g.auc is not None and 0.0 <= g.auc <= 1.0
+
+
+def test_group_auc_none_when_single_class():
+    """집단 내 실제 라벨이 한 종류뿐이면 AUC 가 정의되지 않아 None 이다."""
+    n = 4000
+    defaults, approved, gender = _make_case(n=n)
+    defaults = np.zeros(n, dtype=int)  # 전원 정상 → 클래스 하나뿐
+    scores = np.random.default_rng(4).random(n)
+
+    result = compute_attribute_fairness(
+        defaults, approved, gender, "성별", risk_scores=scores
+    )
+
+    assert all(g.auc is None for g in result.groups)

@@ -13,12 +13,25 @@ class FairnessStatus(str, Enum):
 
 
 class GroupStat(BaseModel):
-    """집단(예: 성별 M/F) 하나의 기초 통계."""
+    """집단(예: 성별 M/F) 하나의 기초 통계와 혼동행렬.
+
+    혼동행렬은 favorable(승인=유리) 관점이다: 정상 고객을 승인하면 TP, 연체
+    고객을 승인하면 FP(오승인), 연체 고객을 거절하면 TN, 정상 고객을 거절하면
+    FN(오거절)이다. FPR/FDR/FOR/FNR Parity 는 이 값에서 파생된다.
+    """
 
     group: str
     n: int
     approval_rate: float = Field(description="승인 고객 수 / 집단 인원")
     actual_default_rate: float = Field(description="실제 연체 고객 수 / 집단 인원")
+    tp: int = Field(description="정상 고객을 승인한 수 (올바른 승인)")
+    fp: int = Field(description="연체 고객을 승인한 수 (오승인)")
+    tn: int = Field(description="연체 고객을 거절한 수 (올바른 거절)")
+    fn: int = Field(description="정상 고객을 거절한 수 (오거절)")
+    auc: float | None = Field(
+        default=None,
+        description="집단 내 위험점수의 ROC AUC. 한 클래스만 있거나 점수가 없으면 None",
+    )
 
 
 class AttributeFairness(BaseModel):
@@ -61,6 +74,10 @@ class AttributeFairness(BaseModel):
     for_parity_difference: float | None = Field(
         default=None,
         description="FOR(FN/(FN+TN)) 집단 간 최대-최소 격차 — 거절된 고객 중 오거절 비율",
+    )
+    fnr_parity_difference: float | None = Field(
+        default=None,
+        description="FNR(FN/(FN+TP)) 집단 간 최대-최소 격차 — 실제 정상 고객 중 오거절 비율",
     )
     groups: list[GroupStat] = Field(default_factory=list)
     excluded_groups: list[str] = Field(
