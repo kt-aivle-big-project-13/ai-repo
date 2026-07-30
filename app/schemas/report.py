@@ -22,6 +22,7 @@ class ReportResponse(BaseModel):
     audit_id: int
     report_s3_key: str
     pdf_report_s3_key: str
+    word_report_s3_key: str
     format: Literal["html"]
     overall_status: str
     generated_at: str

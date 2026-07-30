@@ -18,6 +18,10 @@ from app.schemas.shap import ShapAnalysisRequest, ShapReport
 from app.services import report_prompts
 from app.services.llm import complete
 from app.services.report_prompts import SYSTEM
+from app.services.report_docx import (
+    DocxGenerationError,
+    render_report_to_docx,
+)
 from app.services.report_pdf import PdfGenerationError, render_html_to_pdf
 from app.services.shap import analyze_local_files
 from app.services.storage import download_s3_object, upload_s3_object
@@ -142,15 +146,23 @@ def generate_explainability_report(request: ReportRequest) -> ReportResponse:
         figures = _load_figures(output_dir)
         generated_at = datetime.now(timezone.utc).isoformat()
 
+        meta = {
+            "audit_id": request.audit_id,
+            "generated_at": generated_at,
+            "overall_status": analysis.overall_status,
+            "model_file": report.manifest.get(
+                "model_file",
+                model_path.name,
+            ),
+            "data_file": report.manifest.get(
+                "data_file",
+                dataset_path.name,
+            ),
+        }
+
         html = _render_html(
             {
-                "meta": {
-                    "audit_id": request.audit_id,
-                    "generated_at": generated_at,
-                    "overall_status": analysis.overall_status,
-                    "model_file": report.manifest.get("model_file", model_path.name),
-                    "data_file": report.manifest.get("data_file", dataset_path.name),
-                },
+                "meta": meta,
                 "report": report,
                 "narratives": narratives,
                 "figures": figures,
@@ -160,6 +172,7 @@ def generate_explainability_report(request: ReportRequest) -> ReportResponse:
         run_id = report.manifest.get("run_id", f"report_{request.audit_id}")
         html_path = temporary_path / "report.html"
         pdf_path = temporary_path / "report.pdf"
+        docx_path = temporary_path / "report.docx"
         html_path.write_text(html, encoding="utf-8")
 
         try:
@@ -169,20 +182,36 @@ def generate_explainability_report(request: ReportRequest) -> ReportResponse:
                 "설명가능성 리포트 PDF 생성에 실패했습니다."
             ) from exception
 
+        try:
+            render_report_to_docx(
+                meta=meta,
+                report=report,
+                narratives=narratives,
+                figures=figures,
+                docx_path=docx_path,
+            )
+        except (DocxGenerationError, OSError) as exception:
+            raise ReportGenerationError(
+                "설명가능성 Word 리포트 생성에 실패했습니다."
+            ) from exception
+
         report_prefix = (
             f"explainability-reports/{request.audit_id}/{run_id}"
         )
 
         report_key = f"{report_prefix}/report.html"
         pdf_report_key = f"{report_prefix}/report.pdf"
+        word_report_key = f"{report_prefix}/report.docx"
 
         upload_s3_object(html_path, report_key)
         upload_s3_object(pdf_path, pdf_report_key)
+        upload_s3_object(docx_path, word_report_key)
 
         return ReportResponse(
             audit_id=request.audit_id,
             report_s3_key=report_key,
             pdf_report_s3_key=pdf_report_key,
+            word_report_s3_key=word_report_key,
             format="html",
             overall_status=analysis.overall_status,
             generated_at=generated_at,
