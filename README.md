@@ -175,8 +175,10 @@ python -m pip install -r requirements.txt
 
 ### Playwright Chromium 추가 설치
 
-설명가능성 HTML 리포트를 PDF로 변환하려면 `requirements.txt` 설치 후
-Playwright가 사용하는 Chromium 브라우저를 별도로 설치해야 합니다.
+설명가능성·편향 진단 HTML 리포트를 PDF로 변환하려면 `requirements.txt` 설치 후
+Playwright가 사용하는 Chromium 브라우저를 별도로 설치해야 합니다. 리포트 생성이
+포함된 배포·CI 이미지에도 `python -m playwright install --with-deps chromium` 단계가
+포함되어야 합니다.
 
 Windows 개발 환경:
 
