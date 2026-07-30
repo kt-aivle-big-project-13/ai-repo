@@ -6,12 +6,19 @@ from types import SimpleNamespace
 
 import pytest
 from docx import Document
+from docx.image.exceptions import (
+    InvalidImageStreamError,
+    UnexpectedEndOfFileError,
+    UnrecognizedImageError,
+)
 from docx.shared import Cm
+from docx.text.run import Run
 
 from app.services.report_docx import (
     DocxGenerationError,
     render_report_to_docx,
 )
+
 
 
 # 유효한 1x1 PNG 이미지.
@@ -29,6 +36,14 @@ def _report():
         threshold=0.75,
         status="PASS",
         extra={"standard_deviation": 0.03},
+    )
+
+    sensitive_metric = SimpleNamespace(
+        metric="SENSITIVE_CONTRIB",
+        value=0.12,
+        threshold=0.10,
+        status="WARNING",
+        extra={},
     )
 
     feature = SimpleNamespace(
@@ -53,7 +68,7 @@ def _report():
 
     return SimpleNamespace(
         schema_validation=schema_validation,
-        metrics=[metric],
+        metrics=[metric, sensitive_metric],
         global_importance_top=[feature],
         sampling={
             "audit_sample_size": 500,
@@ -137,6 +152,19 @@ def test_render_report_to_docx_creates_word_document(
     assert "종합 평가 설명" in paragraph_text
     assert "EXT_SOURCE_3" in table_text
     assert "GLOBAL_STABILITY" in table_text
+    summary_table_text = "\n".join(
+        cell.text
+        for row in document.tables[2].rows
+        for cell in row.cells
+    )
+    reliability_table_text = "\n".join(
+        cell.text
+        for row in document.tables[6].rows
+        for cell in row.cells
+    )
+    assert "SENSITIVE_CONTRIB" in summary_table_text
+    assert "SENSITIVE_CONTRIB" not in reliability_table_text
+    assert "GLOBAL_STABILITY" in reliability_table_text
     assert len(document.tables) >= 7
     assert len(document.inline_shapes) == 1
 
@@ -166,5 +194,42 @@ def test_render_report_to_docx_rejects_invalid_figure(
             report=_report(),
             narratives=_narratives(),
             figures=invalid_figures,
+            docx_path=docx_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "image_error",
+    [
+        InvalidImageStreamError,
+        UnexpectedEndOfFileError,
+        UnrecognizedImageError,
+    ],
+)
+def test_render_report_to_docx_wraps_corrupted_image_errors(
+    tmp_path: Path,
+    monkeypatch,
+    image_error,
+) -> None:
+    docx_path = tmp_path / "report.docx"
+
+    def fail_to_add_picture(self, *args, **kwargs):
+        raise image_error()
+
+    monkeypatch.setattr(
+        Run,
+        "add_picture",
+        fail_to_add_picture,
+    )
+
+    with pytest.raises(
+        DocxGenerationError,
+        match="그래프 형식이 올바르지 않습니다",
+    ):
+        render_report_to_docx(
+            meta=_meta(),
+            report=_report(),
+            narratives=_narratives(),
+            figures=_figures(),
             docx_path=docx_path,
         )

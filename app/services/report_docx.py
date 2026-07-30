@@ -9,12 +9,25 @@ from docx import Document
 from docx.document import Document as DocumentObject
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.image.exceptions import (
+    InvalidImageStreamError,
+    UnexpectedEndOfFileError,
+    UnrecognizedImageError,
+)
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
-from docx.image.exceptions import UnrecognizedImageError
 
 from app.schemas.shap import ShapReport
+
+RELIABILITY_METRIC_CODES = frozenset(
+    {
+        "GLOBAL_STABILITY",
+        "FIDELITY",
+        "SHAP_ADDITIVITY",
+        "PERMUTATION_ALIGNMENT",
+    }
+)
 
 
 class DocxGenerationError(RuntimeError):
@@ -186,7 +199,12 @@ def _add_figures(
 
         try:
             run.add_picture(image_stream, width=Cm(16.5))
-        except (UnrecognizedImageError, ValueError) as exception:
+        except (
+            InvalidImageStreamError,
+            UnexpectedEndOfFileError,
+            UnrecognizedImageError,
+            ValueError,
+        ) as exception:
             raise DocxGenerationError(
                 f"Word 리포트 그래프 형식이 올바르지 않습니다: "
                 f"{figure.get('name', 'unknown')}"
@@ -393,6 +411,7 @@ def render_report_to_docx(
                     ),
                 ]
                 for metric in report.metrics
+                if metric.metric in RELIABILITY_METRIC_CODES
             ],
         )
         _add_figures(
