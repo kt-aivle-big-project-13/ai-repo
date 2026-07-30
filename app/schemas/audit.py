@@ -32,6 +32,38 @@ class FairnessMetricValues(BaseModel):
     FOR_PARITY: float | None
 
 
+class AuditReportMeta(BaseModel):
+    """편향 리포트용 메타·증적.
+
+    공정성 지표 외에, 검증 단계(#4)가 이미 계산해 두고도 응답에 담기지 않던
+    모델·데이터 정보, 스키마 검증 결과, 재현성 정보를 리포트가 쓸 수 있게 surface
+    한다. `include_report_meta=True` 일 때만 채워진다.
+    """
+
+    # 모델·데이터 정보 (리포트 2장)
+    model_file: str
+    n_features: int
+    n_categorical_features: int
+    data_n_rows: int
+    data_n_columns: int
+    target_column: str
+    protected_columns: list[str]
+    protected_in_model: dict[str, bool]
+
+    # 스키마 검증 (리포트 3장)
+    schema_passed: bool
+    schema_issues: list[ValidationIssue]
+
+    # 증적·재현성 (리포트 6장)
+    run_id: str
+    generated_at_utc: str
+    xgboost_version: str
+    python_version: str
+
+    # 한계 (리포트 2장)
+    limitations: list[str]
+
+
 class AuditRunResponse(BaseModel):
     """감사 실행 결과.
 
@@ -61,6 +93,11 @@ class AuditRunResponse(BaseModel):
 
     warnings: list[ValidationIssue] = Field(
         default_factory=list, description="검증 단계의 WARN·INFO (BLOCK 은 아님)"
+    )
+
+    report_meta: AuditReportMeta | None = Field(
+        default=None,
+        description="편향 리포트용 메타·증적. include_report_meta=True 일 때만 채워짐",
     )
 
 

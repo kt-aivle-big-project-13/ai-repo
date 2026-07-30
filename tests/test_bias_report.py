@@ -7,7 +7,7 @@
 from pathlib import Path
 
 import app.services.bias_report as bias_report_service
-from app.schemas.audit import AuditRunResponse, FairnessMetricValues
+from app.schemas.audit import AuditReportMeta, AuditRunResponse, FairnessMetricValues
 from app.schemas.bias_report import BiasReportRequest
 from app.schemas.fairness import AttributeFairness, FairnessStatus, GroupStat
 from app.schemas.performance import PerformanceSummary
@@ -57,6 +57,23 @@ def _audit() -> AuditRunResponse:
             )
         },
         warnings=[],
+        report_meta=AuditReportMeta(
+            model_file="credit_model.json",
+            n_features=50,
+            n_categorical_features=8,
+            data_n_rows=1000,
+            data_n_columns=60,
+            target_column="TARGET",
+            protected_columns=["CODE_GENDER", "AGE_GROUP"],
+            protected_in_model={"성별": False, "연령": True},
+            schema_passed=True,
+            schema_issues=[],
+            run_id="bias_audit_20260730T000000Z",
+            generated_at_utc="2026-07-30T00:00:00Z",
+            xgboost_version="3.3.0",
+            python_version="3.13.0",
+            limitations=["공정성 지표는 인과가 아니라 격차를 나타냄"],
+        ),
     )
 
 
@@ -77,7 +94,9 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     upload_sink: dict = {}
 
     monkeypatch.setattr(
-        bias_report_service, "analyze_fairness_s3", lambda fairness_request: _audit()
+        bias_report_service,
+        "analyze_fairness_s3",
+        lambda fairness_request, include_report_meta=False: _audit(),
     )
 
     def fake_complete(prompt, system=None, **kwargs):
@@ -110,3 +129,46 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     assert "CODE_GENDER" in html            # 집단표/지표표
     assert "Prop.Parity" in html            # 지표 표 헤더
     assert "data:image/png;base64," in html  # figure 임베드
+    # report_meta 기반 보강 섹션 (모델정보·스키마검증·증적)
+    assert "credit_model.json" in html      # 2장 모델 기본정보
+    assert "입력 스키마 검증" in html        # 3장 스키마 검증
+    assert "bias_audit_20260730T000000Z" in html  # 부록 증적·재현성
+
+
+def test_build_report_meta_maps_validation_result():
+    """검증 결과의 모델·데이터·스키마 정보가 리포트 메타로 옮겨진다."""
+
+    from app.services.audit import _build_report_meta
+    from app.schemas.validation import (
+        AuditDatasetInfo,
+        IssueLevel,
+        ModelSchema,
+        ValidationIssue,
+        ValidationResult,
+    )
+
+    validation = ValidationResult(
+        passed=True,
+        issues=[ValidationIssue(level=IssueLevel.INFO, item="credit_model.json", message="로드 완료")],
+        model_schema_info=ModelSchema(
+            feature_names=["a", "b", "c"], categorical_features=["a"], n_features=3
+        ),
+        audit_dataset=AuditDatasetInfo(
+            n_rows=1000, n_columns=60, target_column="TARGET",
+            protected_columns=["CODE_GENDER", "AGE_GROUP"],
+        ),
+        protected_in_model={"성별": False, "연령": True},
+    )
+
+    meta = _build_report_meta(validation, Path("/tmp/models/credit_model.json"))
+
+    assert meta.model_file == "credit_model.json"
+    assert meta.n_features == 3
+    assert meta.n_categorical_features == 1
+    assert meta.data_n_rows == 1000
+    assert meta.data_n_columns == 60
+    assert meta.target_column == "TARGET"
+    assert meta.protected_columns == ["CODE_GENDER", "AGE_GROUP"]
+    assert meta.schema_passed is True
+    assert meta.xgboost_version
+    assert meta.limitations
