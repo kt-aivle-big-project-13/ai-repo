@@ -8,6 +8,9 @@
 올린다 — 서버 오류와 구분해 API 가 다른 상태 코드로 응답하기 위함이다.
 """
 
+import hashlib
+import os
+import subprocess
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -16,6 +19,7 @@ from pathlib import Path
 import xgboost as xgb
 
 from app.schemas.audit import (
+    AuditInputSource,
     AuditReportMeta,
     AuditRunResponse,
     FairnessMetricValues,
@@ -92,16 +96,56 @@ def _summarize_fairness(
     }
 
 
+def _sha256(path: Path) -> str:
+    """파일 콘텐츠의 SHA-256. 실제 사용한 입력 바이트를 특정하는 증적."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _code_version() -> str | None:
+    """실행 코드 버전(git commit). 배포 환경변수 우선, 없으면 git, 그것도 없으면 None."""
+    for name in ("APP_GIT_SHA", "GIT_COMMIT", "GIT_SHA"):
+        value = os.getenv(name)
+        if value:
+            return value
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=3, check=True,
+        ).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def _build_report_meta(
     validation: ValidationResult,
     model_path: Path,
+    audit_path: Path,
+    valid_path: Path | None,
+    report_source: AuditInputSource | None,
 ) -> AuditReportMeta:
-    """검증 결과가 이미 계산해 둔 모델·데이터·스키마 정보를 리포트 메타로 옮긴다."""
+    """검증 결과가 이미 계산해 둔 모델·데이터·스키마 정보와 원본 입력 식별자·해시를
+    리포트 메타로 옮긴다."""
     schema = validation.model_schema_info
     dataset = validation.audit_dataset
     now = datetime.now(timezone.utc)
+    source = report_source or AuditInputSource()
+    # 식별용 표시명은 원본 S3 Key 의 basename 을 우선 쓴다(임시 다운로드 파일명이 아니라).
+    display_name = (
+        Path(source.model_s3_key).name if source.model_s3_key else Path(model_path).name
+    )
     return AuditReportMeta(
-        model_file=Path(model_path).name,
+        model_s3_key=source.model_s3_key,
+        audit_dataset_s3_key=source.audit_dataset_s3_key,
+        validation_dataset_s3_key=source.validation_dataset_s3_key,
+        model_sha256=_sha256(model_path),
+        audit_dataset_sha256=_sha256(audit_path),
+        validation_dataset_sha256=_sha256(valid_path) if valid_path else None,
+        code_version=_code_version(),
+        model_file=display_name,
         n_features=schema.n_features if schema else 0,
         n_categorical_features=len(schema.categorical_features) if schema else 0,
         data_n_rows=dataset.n_rows if dataset else 0,
@@ -128,6 +172,7 @@ def run_audit(
     sensitive_features: str | None = None,
     audit_id: str | None = None,
     include_report_meta: bool = False,
+    report_source: AuditInputSource | None = None,
 ) -> AuditRunResponse:
     """감사 한 건을 처음부터 끝까지 실행한다.
 
@@ -178,7 +223,9 @@ def run_audit(
         fairness_summary=_summarize_fairness(fairness.attributes),
         warnings=warnings,
         report_meta=(
-            _build_report_meta(validation, model_path)
+            _build_report_meta(
+                validation, model_path, audit_path, valid_path, report_source
+            )
             if include_report_meta
             else None
         ),

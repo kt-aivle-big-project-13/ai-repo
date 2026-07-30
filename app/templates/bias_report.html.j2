@@ -156,13 +156,30 @@
 
 {% if audit.report_meta %}
 <h2>부록 · 증적 및 재현성</h2>
+<h3>입력 식별자</h3>
+<table class="kv">
+  <tr><th>모델 S3 Key</th><td class="small">{{ audit.report_meta.model_s3_key or "미기록" }}</td></tr>
+  <tr><th>모델 SHA-256</th><td class="small">{{ audit.report_meta.model_sha256 or "미기록" }}</td></tr>
+  <tr><th>감사데이터 S3 Key</th><td class="small">{{ audit.report_meta.audit_dataset_s3_key or "미기록" }}</td></tr>
+  <tr><th>감사데이터 SHA-256</th><td class="small">{{ audit.report_meta.audit_dataset_sha256 or "미기록" }}</td></tr>
+  {% if audit.report_meta.validation_dataset_s3_key %}
+  <tr><th>검증데이터 S3 Key</th><td class="small">{{ audit.report_meta.validation_dataset_s3_key }}</td></tr>
+  <tr><th>검증데이터 SHA-256</th><td class="small">{{ audit.report_meta.validation_dataset_sha256 or "미기록" }}</td></tr>
+  {% endif %}
+</table>
+<h3>실행 환경</h3>
 <table class="kv">
   <tr><th>실행 ID</th><td>{{ audit.report_meta.run_id }}</td></tr>
   <tr><th>생성 시각(UTC)</th><td>{{ audit.report_meta.generated_at_utc }}</td></tr>
+  <tr><th>코드 버전</th><td class="small">{{ audit.report_meta.code_version or "미기록" }}</td></tr>
   <tr><th>XGBoost 버전</th><td>{{ audit.report_meta.xgboost_version }}</td></tr>
   <tr><th>Python 버전</th><td class="small">{{ audit.report_meta.python_version }}</td></tr>
 </table>
-<p class="small">동일 모델·데이터·설정으로 재실행하면 같은 결과가 재생성됨.</p>
+{% if audit.report_meta.model_sha256 and audit.report_meta.audit_dataset_sha256 %}
+<p class="small">위 S3 Key·콘텐츠 해시(SHA-256)로 이번 분석에 사용된 입력을 특정할 수 있음. 동일 해시의 입력과 동일 코드 버전에서 재실행 시 결과가 재현됨{% if not audit.report_meta.code_version %} (단, 코드 버전이 미기록이라 코드 동일성은 별도 확인 필요){% endif %}.</p>
+{% else %}
+<p class="small">입력 콘텐츠 해시가 기록되지 않아, 재현성은 기록된 증적 범위 내에서만 보장됨.</p>
+{% endif %}
 {% endif %}
 
 {% if audit.warnings %}

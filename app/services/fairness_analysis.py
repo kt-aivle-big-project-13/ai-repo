@@ -8,7 +8,7 @@
 import tempfile
 from pathlib import Path
 
-from app.schemas.audit import AuditRunResponse, ThresholdRequest
+from app.schemas.audit import AuditInputSource, AuditRunResponse, ThresholdRequest
 from app.schemas.fairness_internal import FairnessAnalyzeRequest
 from app.services.audit import run_audit
 from app.services.storage import download_s3_object
@@ -65,4 +65,13 @@ def analyze_s3_request(
             sensitive_features=",".join(request.sensitive_features),
             audit_id=str(request.audit_id),
             include_report_meta=include_report_meta,
+            report_source=(
+                AuditInputSource(
+                    model_s3_key=request.model_s3_key,
+                    audit_dataset_s3_key=request.audit_dataset_s3_key,
+                    validation_dataset_s3_key=request.validation_dataset_s3_key,
+                )
+                if include_report_meta
+                else None
+            ),
         )

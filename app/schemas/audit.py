@@ -32,6 +32,14 @@ class FairnessMetricValues(BaseModel):
     FOR_PARITY: float | None
 
 
+class AuditInputSource(BaseModel):
+    """호출자가 넘긴 원본 입력 식별자 (임시 다운로드 파일명이 아닌 원본 S3 Key)."""
+
+    model_s3_key: str | None = None
+    audit_dataset_s3_key: str | None = None
+    validation_dataset_s3_key: str | None = None
+
+
 class AuditReportMeta(BaseModel):
     """편향 리포트용 메타·증적.
 
@@ -39,6 +47,18 @@ class AuditReportMeta(BaseModel):
     모델·데이터 정보, 스키마 검증 결과, 재현성 정보를 리포트가 쓸 수 있게 surface
     한다. `include_report_meta=True` 일 때만 채워진다.
     """
+
+    # 입력 식별·증적 (원본 S3 Key + 콘텐츠 해시 + 코드 버전)
+    # 임시 다운로드 파일명이 아니라 이 식별자들로 동일 입력을 특정한다.
+    model_s3_key: str | None = None
+    audit_dataset_s3_key: str | None = None
+    validation_dataset_s3_key: str | None = None
+    model_sha256: str | None = None
+    audit_dataset_sha256: str | None = None
+    validation_dataset_sha256: str | None = None
+    code_version: str | None = Field(
+        default=None, description="실행 코드 버전(git commit). 미기록 시 None"
+    )
 
     # 모델·데이터 정보 (리포트 2장)
     model_file: str

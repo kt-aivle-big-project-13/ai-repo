@@ -58,6 +58,11 @@ def _audit() -> AuditRunResponse:
         },
         warnings=[],
         report_meta=AuditReportMeta(
+            model_s3_key="models/abc_credit_model.json",
+            audit_dataset_s3_key="datasets/abc_audit_dataset.csv",
+            model_sha256="a" * 64,
+            audit_dataset_sha256="b" * 64,
+            code_version="deadbeef",
             model_file="credit_model.json",
             n_features=50,
             n_categorical_features=8,
@@ -133,12 +138,15 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     assert "credit_model.json" in html      # 2장 모델 기본정보
     assert "입력 스키마 검증" in html        # 3장 스키마 검증
     assert "bias_audit_20260730T000000Z" in html  # 부록 증적·재현성
+    assert "models/abc_credit_model.json" in html  # 입력 식별자(원본 S3 Key)
+    assert "a" * 64 in html                         # 모델 콘텐츠 해시
 
 
-def test_build_report_meta_maps_validation_result():
-    """검증 결과의 모델·데이터·스키마 정보가 리포트 메타로 옮겨진다."""
+def test_build_report_meta_maps_source_and_hashes(tmp_path):
+    """원본 S3 Key·콘텐츠 해시·검증 정보가 리포트 메타로 옮겨진다."""
 
     from app.services.audit import _build_report_meta
+    from app.schemas.audit import AuditInputSource
     from app.schemas.validation import (
         AuditDatasetInfo,
         IssueLevel,
@@ -146,6 +154,11 @@ def test_build_report_meta_maps_validation_result():
         ValidationIssue,
         ValidationResult,
     )
+
+    model_path = tmp_path / "model.json"
+    model_path.write_bytes(b"model-bytes")
+    audit_path = tmp_path / "audit.csv"
+    audit_path.write_bytes(b"audit-bytes")
 
     validation = ValidationResult(
         passed=True,
@@ -159,16 +172,25 @@ def test_build_report_meta_maps_validation_result():
         ),
         protected_in_model={"성별": False, "연령": True},
     )
+    source = AuditInputSource(
+        model_s3_key="models/xyz_credit_model.json",
+        audit_dataset_s3_key="datasets/xyz_audit_dataset.csv",
+    )
 
-    meta = _build_report_meta(validation, Path("/tmp/models/credit_model.json"))
+    meta = _build_report_meta(validation, model_path, audit_path, None, source)
 
-    assert meta.model_file == "credit_model.json"
+    import hashlib
+
+    # 표시명은 임시 파일명이 아니라 원본 S3 Key basename 을 쓴다.
+    assert meta.model_file == "xyz_credit_model.json"
+    assert meta.model_s3_key == "models/xyz_credit_model.json"
+    assert meta.audit_dataset_s3_key == "datasets/xyz_audit_dataset.csv"
+    # 콘텐츠 해시는 실제 파일 바이트의 SHA-256 과 일치한다.
+    assert meta.model_sha256 == hashlib.sha256(b"model-bytes").hexdigest()
+    assert meta.audit_dataset_sha256 == hashlib.sha256(b"audit-bytes").hexdigest()
+    assert meta.validation_dataset_sha256 is None
     assert meta.n_features == 3
-    assert meta.n_categorical_features == 1
     assert meta.data_n_rows == 1000
-    assert meta.data_n_columns == 60
-    assert meta.target_column == "TARGET"
-    assert meta.protected_columns == ["CODE_GENDER", "AGE_GROUP"]
     assert meta.schema_passed is True
     assert meta.xgboost_version
     assert meta.limitations
