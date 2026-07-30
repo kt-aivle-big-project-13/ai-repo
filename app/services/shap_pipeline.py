@@ -1006,10 +1006,23 @@ def run_shap_pipeline(
             "lime_alignment": lime_summary["status"],
         },
         "limitations": [
-            "Global explanation stability measures audit-sample robustness, not consistency across retrained models.",
-            "Sensitive contribution measures direct use of mapped model features; proxy discrimination is outside this metric.",
-            "SHAP and LIME describe associations with predictions and do not establish causality.",
-            "Disclosure policies are starter rules and require domain/legal approval before customer use.",
+            (
+                "전역 설명 안정성은 감사 표본 내 설명의 강건성을 측정하며, "
+                "재학습된 모델 간 일관성을 의미하지 않습니다."
+            ),
+            (
+                "민감변수 기여도는 매핑된 모델 입력변수의 직접적인 사용 정도를 "
+                "측정하며, 대리변수를 통한 차별 가능성은 평가 범위에 포함되지 "
+                "않습니다."
+            ),
+            (
+                "SHAP과 LIME은 모델 예측과 입력변수 간의 연관성을 설명하며, "
+                "인과관계를 입증하지 않습니다."
+            ),
+            (
+                "정보 공개 정책은 초기 기준이며, 실제 고객 대상 적용 전 "
+                "도메인 및 법률 전문가의 검토가 필요합니다."
+            ),
         ],
     }
     write_json(output / "summary" / "explainability_summary.json", summary)
