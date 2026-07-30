@@ -122,6 +122,7 @@ def tradeoff_prompt(audit: AuditRunResponse) -> str:
             for attribute, f in audit.fairness_by_attribute.items()
             if any(g.auc is not None for g in f.groups)
         },
+        "공정성지표": _attribute_metrics(audit),
     }
     return (
         "다음은 전체 모델 성능과 집단별 AUC다.\n"

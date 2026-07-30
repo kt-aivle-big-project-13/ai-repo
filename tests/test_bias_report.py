@@ -98,11 +98,13 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     complete_calls: list = []
     upload_sink: dict = {}
 
-    monkeypatch.setattr(
-        bias_report_service,
-        "analyze_fairness_s3",
-        lambda fairness_request, include_report_meta=False: _audit(),
-    )
+    analyze_calls: dict = {}
+
+    def fake_analyze(fairness_request, include_report_meta=False):
+        analyze_calls["include_report_meta"] = include_report_meta
+        return _audit()
+
+    monkeypatch.setattr(bias_report_service, "analyze_fairness_s3", fake_analyze)
 
     def fake_complete(prompt, system=None, **kwargs):
         complete_calls.append(prompt)
@@ -124,6 +126,9 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     assert result.report_s3_key.startswith("bias-reports/42/bias_")
     assert result.report_s3_key.endswith("/report.html")
     assert result.generated_at
+
+    # 메타 요청 플래그가 분석 호출에 전달됐는지 검증
+    assert analyze_calls["include_report_meta"] is True
 
     # 섹션별 5회 호출
     assert len(complete_calls) == 5
