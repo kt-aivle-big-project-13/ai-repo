@@ -8,17 +8,38 @@
 올린다 — 서버 오류와 구분해 API 가 다른 상태 코드로 응답하기 위함이다.
 """
 
+import hashlib
+import os
+import subprocess
+import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
-from app.schemas.audit import AuditRunResponse, FairnessMetricValues, ThresholdRequest
+import xgboost as xgb
+
+from app.schemas.audit import (
+    AuditInputSource,
+    AuditReportMeta,
+    AuditRunResponse,
+    FairnessMetricValues,
+    ThresholdRequest,
+)
 from app.schemas.fairness import AttributeFairness
 from app.schemas.scoring import ThresholdConfig, ThresholdMethod
-from app.schemas.validation import IssueLevel, ValidationIssue
+from app.schemas.validation import IssueLevel, ValidationIssue, ValidationResult
 from app.services.fairness import compute_fairness_metrics
 from app.services.performance import compute_performance
 from app.services.scoring import actual_defaults, load_audit_frames, score_audit_dataset
 from app.services.validation import validate_audit_inputs
+
+# 편향 리포트용 고정 한계 문구. 공정성 지표 해석 시 반드시 함께 제시한다.
+FAIRNESS_LIMITATIONS = [
+    "공정성 지표는 집단 간 결과 격차를 나타내며 인과관계를 의미하지 않음",
+    "표본이 최소 기준 미만인 집단은 지표 계산에서 제외됨",
+    "대리변수(proxy)를 통한 간접 차별은 이 지표들로 직접 측정되지 않음",
+    "판정 임계값은 정책 영역으로 이 리포트에는 raw 값·격차만 제시함",
+]
 
 
 class ValidationBlockedError(Exception):
@@ -75,6 +96,73 @@ def _summarize_fairness(
     }
 
 
+def _sha256(path: Path) -> str:
+    """파일 콘텐츠의 SHA-256. 실제 사용한 입력 바이트를 특정하는 증적."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _code_version() -> str | None:
+    """실행 코드 버전(git commit). 배포 환경변수 우선, 없으면 git, 그것도 없으면 None."""
+    for name in ("APP_GIT_SHA", "GIT_COMMIT", "GIT_SHA"):
+        value = os.getenv(name)
+        if value:
+            return value
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=3, check=True,
+        ).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _build_report_meta(
+    validation: ValidationResult,
+    model_path: Path,
+    audit_path: Path,
+    valid_path: Path | None,
+    report_source: AuditInputSource | None,
+) -> AuditReportMeta:
+    """검증 결과가 이미 계산해 둔 모델·데이터·스키마 정보와 원본 입력 식별자·해시를
+    리포트 메타로 옮긴다."""
+    schema = validation.model_schema_info
+    dataset = validation.audit_dataset
+    now = datetime.now(timezone.utc)
+    source = report_source or AuditInputSource()
+    # 식별용 표시명은 원본 S3 Key 의 basename 을 우선 쓴다(임시 다운로드 파일명이 아니라).
+    display_name = (
+        Path(source.model_s3_key).name if source.model_s3_key else Path(model_path).name
+    )
+    return AuditReportMeta(
+        model_s3_key=source.model_s3_key,
+        audit_dataset_s3_key=source.audit_dataset_s3_key,
+        validation_dataset_s3_key=source.validation_dataset_s3_key,
+        model_sha256=_sha256(model_path),
+        audit_dataset_sha256=_sha256(audit_path),
+        validation_dataset_sha256=_sha256(valid_path) if valid_path else None,
+        code_version=_code_version(),
+        model_file=display_name,
+        n_features=schema.n_features if schema else 0,
+        n_categorical_features=len(schema.categorical_features) if schema else 0,
+        data_n_rows=dataset.n_rows if dataset else 0,
+        data_n_columns=dataset.n_columns if dataset else 0,
+        target_column=dataset.target_column if dataset else "",
+        protected_columns=dataset.protected_columns if dataset else [],
+        protected_in_model=validation.protected_in_model,
+        schema_passed=validation.passed,
+        schema_issues=validation.issues,
+        run_id=now.strftime("bias_audit_%Y%m%dT%H%M%SZ"),
+        generated_at_utc=now.isoformat(),
+        xgboost_version=xgb.__version__,
+        python_version=sys.version,
+        limitations=list(FAIRNESS_LIMITATIONS),
+    )
+
+
 def run_audit(
     model_path: Path,
     audit_path: Path,
@@ -83,11 +171,14 @@ def run_audit(
     threshold_request: ThresholdRequest | None = None,
     sensitive_features: str | None = None,
     audit_id: str | None = None,
+    include_report_meta: bool = False,
+    report_source: AuditInputSource | None = None,
 ) -> AuditRunResponse:
     """감사 한 건을 처음부터 끝까지 실행한다.
 
     검증 → 채점 → 공정성 지표 순으로 실행하고 결과를 조립한다. 검증 BLOCK 이면
-    `ValidationBlockedError` 를 올린다.
+    `ValidationBlockedError` 를 올린다. `include_report_meta=True` 면 편향 리포트용
+    메타·증적(`report_meta`)을 함께 채운다.
     """
     validation = validate_audit_inputs(model_path, audit_path, valid_path)
     if not validation.passed:
@@ -131,4 +222,11 @@ def run_audit(
         fairness_by_attribute=fairness.attributes,
         fairness_summary=_summarize_fairness(fairness.attributes),
         warnings=warnings,
+        report_meta=(
+            _build_report_meta(
+                validation, model_path, audit_path, valid_path, report_source
+            )
+            if include_report_meta
+            else None
+        ),
     )

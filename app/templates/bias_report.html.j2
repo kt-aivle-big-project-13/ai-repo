@@ -12,9 +12,13 @@
   h3 { font-size:1.05rem; margin-top:1.4rem; }
   .meta { color:var(--muted); font-size:.9rem; margin-bottom:8px; }
   table { border-collapse:collapse; width:100%; margin:12px 0; font-size:.88rem; }
-  th, td { border:1px solid var(--line); padding:7px 10px; text-align:left; }
+  th, td { border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top; }
   th { background:#f9fafb; }
+  /* 비교용 컬럼 표: 숫자는 우측 정렬(헤더 포함) */
   td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  /* key-value 표(라벨-값): 표 안 모든 셀 좌측 정렬로 통일 */
+  table.kv th, table.kv td { text-align:left; }
+  table.kv th { width:20%; }
   .narrative { background:#f9fafb; border-left:3px solid #cbd5e1; padding:10px 14px; margin:10px 0; }
   figure { margin:16px 0; text-align:center; }
   figure img { max-width:100%; border:1px solid var(--line); }
@@ -34,28 +38,67 @@
 <h2>1. 감사 개요</h2>
 <h3>감사 목적 및 범위</h3>
 <div class="narrative">{{ narratives.overview_purpose }}</div>
-<table>
+<table class="kv">
   <tr><th>고객 수</th><td class="num">{{ meta.n_customers }}</td>
       <th>전체 승인율</th><td class="num">{{ num(meta.approval_rate, 4) }}</td></tr>
   <tr><th>보호속성</th><td colspan="3">{{ audit.fairness_by_attribute.keys() | join(", ") }}</td></tr>
 </table>
 
 <h2>2. 모델·데이터 및 승인 기준</h2>
-<table>
+{% if audit.report_meta %}
+<h3>모델 기본정보</h3>
+<table class="kv">
+  <tr><th>모델 파일</th><td>{{ audit.report_meta.model_file }}</td>
+      <th>XGBoost 버전</th><td>{{ audit.report_meta.xgboost_version }}</td></tr>
+  <tr><th>입력 피처 수</th><td class="num">{{ audit.report_meta.n_features }}</td>
+      <th>범주형 피처 수</th><td class="num">{{ audit.report_meta.n_categorical_features }}</td></tr>
+</table>
+<h3>분석 데이터 개요</h3>
+<table class="kv">
+  <tr><th>행 수</th><td class="num">{{ audit.report_meta.data_n_rows }}</td>
+      <th>열 수</th><td class="num">{{ audit.report_meta.data_n_columns }}</td></tr>
+  <tr><th>실제값 컬럼</th><td>{{ audit.report_meta.target_column }}</td>
+      <th>보호속성 컬럼</th><td>{{ audit.report_meta.protected_columns | join(", ") }}</td></tr>
+</table>
+{% endif %}
+<h3>승인 기준</h3>
+<table class="kv">
   <tr><th>승인 임계값</th><td class="num">{{ num(audit.threshold.value) }}</td>
       <th>산출 방식</th><td>{{ audit.threshold.method.value }}</td></tr>
   <tr><th>기준 근거</th><td colspan="3" class="small">{{ audit.threshold.basis }}</td></tr>
   <tr><th>보정 출처</th><td>{{ audit.calibration_source.value }}</td>
       <th>전체 성능</th><td>AUC {{ num(audit.performance.auc, 4) }} · ACC {{ num(audit.performance.accuracy, 4) }}</td></tr>
 </table>
+{% if audit.report_meta and audit.report_meta.limitations %}
+<h3>모델·데이터의 한계</h3>
+<ul>{% for item in audit.report_meta.limitations %}<li>{{ item }}</li>{% endfor %}</ul>
+{% endif %}
 
 <h2>3. 공정성 분석 방법</h2>
 <ul>
   <li>지표: Demographic Parity / Equal Opportunity / Equalized Odds / Proportional Parity(80% Rule) / FPR·FDR·FOR Parity</li>
   <li>관점: favorable(승인=1·정상=1) 기준. difference 계열은 0에 가까울수록, Proportional Parity는 1에 가까울수록 격차가 작음</li>
   <li>산출: Fairlearn + 집단별 혼동행렬(TP/FP/TN/FN) 직접 계산</li>
-  <li>표본: 최소 표본 미만 집단은 계산에서 제외(제외 집단은 각 지표에 표기)</li>
+  <li>표본: 전체 고객을 채점해 집단별로 비교(별도 샘플링 없음). 최소 표본 미만 집단은 제외</li>
 </ul>
+{% if audit.report_meta %}
+<h3>분석 전 입력 스키마 검증</h3>
+<table class="kv">
+  <tr><th>검증 통과</th><td>{{ "예" if audit.report_meta.schema_passed else "아니오" }}</td>
+      <th>보호속성 모델 입력 포함</th>
+      <td>{% for k, v in audit.report_meta.protected_in_model.items() %}{{ k }}={{ "예" if v else "아니오" }}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+</table>
+{% if audit.report_meta.schema_issues %}
+<table>
+  <tr><th>수준</th><th>항목</th><th>메시지</th></tr>
+  {% for issue in audit.report_meta.schema_issues %}
+  <tr><td>{{ issue.level.value }}</td><td>{{ issue.item }}</td><td class="small">{{ issue.message }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="small">검증 항목에서 특이사항 없음.</p>
+{% endif %}
+{% endif %}
 
 <h2>4. 집단별 결과 (기술통계)</h2>
 <div class="narrative">{{ narratives.group_results }}</div>
@@ -110,6 +153,34 @@
 <h2>7. 종합 (기술 요약)</h2>
 <div class="narrative">{{ narratives.overall_summary }}</div>
 <p class="small">판정·개선 권고·재감사 조건·법령 매핑은 이 리포트 범위 밖(정책·후속 영역).</p>
+
+{% if audit.report_meta %}
+<h2>부록 · 증적 및 재현성</h2>
+<h3>입력 식별자</h3>
+<table class="kv">
+  <tr><th>모델 S3 Key</th><td class="small">{{ audit.report_meta.model_s3_key or "미기록" }}</td></tr>
+  <tr><th>모델 SHA-256</th><td class="small">{{ audit.report_meta.model_sha256 or "미기록" }}</td></tr>
+  <tr><th>감사데이터 S3 Key</th><td class="small">{{ audit.report_meta.audit_dataset_s3_key or "미기록" }}</td></tr>
+  <tr><th>감사데이터 SHA-256</th><td class="small">{{ audit.report_meta.audit_dataset_sha256 or "미기록" }}</td></tr>
+  {% if audit.report_meta.validation_dataset_s3_key %}
+  <tr><th>검증데이터 S3 Key</th><td class="small">{{ audit.report_meta.validation_dataset_s3_key }}</td></tr>
+  <tr><th>검증데이터 SHA-256</th><td class="small">{{ audit.report_meta.validation_dataset_sha256 or "미기록" }}</td></tr>
+  {% endif %}
+</table>
+<h3>실행 환경</h3>
+<table class="kv">
+  <tr><th>실행 ID</th><td>{{ audit.report_meta.run_id }}</td></tr>
+  <tr><th>생성 시각(UTC)</th><td>{{ audit.report_meta.generated_at_utc }}</td></tr>
+  <tr><th>코드 버전</th><td class="small">{{ audit.report_meta.code_version or "미기록" }}</td></tr>
+  <tr><th>XGBoost 버전</th><td>{{ audit.report_meta.xgboost_version }}</td></tr>
+  <tr><th>Python 버전</th><td class="small">{{ audit.report_meta.python_version }}</td></tr>
+</table>
+{% if audit.report_meta.model_sha256 and audit.report_meta.audit_dataset_sha256 %}
+<p class="small">위 S3 Key·콘텐츠 해시(SHA-256)로 이번 분석에 사용된 입력을 특정할 수 있음. 동일 해시의 입력과 동일 코드 버전에서 재실행 시 결과가 재현됨{% if not audit.report_meta.code_version %} (단, 코드 버전이 미기록이라 코드 동일성은 별도 확인 필요){% endif %}.</p>
+{% else %}
+<p class="small">입력 콘텐츠 해시가 기록되지 않아, 재현성은 기록된 증적 범위 내에서만 보장됨.</p>
+{% endif %}
+{% endif %}
 
 {% if audit.warnings %}
 <h2>부록 · 검증 경고</h2>

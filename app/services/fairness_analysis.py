@@ -8,7 +8,7 @@
 import tempfile
 from pathlib import Path
 
-from app.schemas.audit import AuditRunResponse, ThresholdRequest
+from app.schemas.audit import AuditInputSource, AuditRunResponse, ThresholdRequest
 from app.schemas.fairness_internal import FairnessAnalyzeRequest
 from app.services.audit import run_audit
 from app.services.storage import download_s3_object
@@ -26,8 +26,15 @@ def _build_threshold_request(request: FairnessAnalyzeRequest) -> ThresholdReques
     )
 
 
-def analyze_s3_request(request: FairnessAnalyzeRequest) -> AuditRunResponse:
-    """S3 파일을 내려받아 공정성 감사를 실행하고 임시 파일을 정리한다."""
+def analyze_s3_request(
+    request: FairnessAnalyzeRequest,
+    include_report_meta: bool = False,
+) -> AuditRunResponse:
+    """S3 파일을 내려받아 공정성 감사를 실행하고 임시 파일을 정리한다.
+
+    `include_report_meta=True` 면 편향 리포트용 메타·증적도 함께 채운다(기본 off라
+    백엔드 연동 경로는 영향 없음).
+    """
 
     with tempfile.TemporaryDirectory(
         prefix=f"fairness_audit_{request.audit_id}_"
@@ -57,4 +64,14 @@ def analyze_s3_request(request: FairnessAnalyzeRequest) -> AuditRunResponse:
             threshold_request=_build_threshold_request(request),
             sensitive_features=",".join(request.sensitive_features),
             audit_id=str(request.audit_id),
+            include_report_meta=include_report_meta,
+            report_source=(
+                AuditInputSource(
+                    model_s3_key=request.model_s3_key,
+                    audit_dataset_s3_key=request.audit_dataset_s3_key,
+                    validation_dataset_s3_key=request.validation_dataset_s3_key,
+                )
+                if include_report_meta
+                else None
+            ),
         )

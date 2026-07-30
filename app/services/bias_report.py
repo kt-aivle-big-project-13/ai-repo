@@ -67,7 +67,8 @@ def generate_bias_report(request: BiasReportRequest) -> BiasReportResponse:
     """S3 파일로 공정성 감사를 실행하고 편향진단 HTML 리포트를 만들어 S3 에 올린다."""
 
     audit = analyze_fairness_s3(
-        FairnessAnalyzeRequest(**request.model_dump())
+        FairnessAnalyzeRequest(**request.model_dump()),
+        include_report_meta=True,
     )
 
     narratives = _build_narratives(audit, complete)
