@@ -118,6 +118,23 @@ def _patch_common(monkeypatch, upload_sink: dict, complete_calls: list):
         fake_render_html_to_pdf,
     )
 
+    def fake_render_report_to_docx(
+        *,
+        meta,
+        report,
+        narratives,
+        figures,
+        docx_path,
+    ):
+        Path(docx_path).write_bytes(b"PK-docx-test")
+        return Path(docx_path).resolve()
+
+    monkeypatch.setattr(
+        report_service,
+        "render_report_to_docx",
+        fake_render_report_to_docx,
+    )
+
     def fake_upload(source, key):
         upload_sink[key] = Path(source).read_bytes()
         return key
@@ -142,6 +159,10 @@ def test_generate_report_renders_and_uploads(monkeypatch):
         result.pdf_report_s3_key
         == "explainability-reports/42/shap_audit_X/report.pdf"
     )
+    assert (
+        result.word_report_s3_key
+        == "explainability-reports/42/shap_audit_X/report.docx"
+    )
     assert result.format == "html"
     assert result.overall_status == "WARNING"
     assert result.generated_at
@@ -151,6 +172,7 @@ def test_generate_report_renders_and_uploads(monkeypatch):
 
     html = upload_sink[result.report_s3_key].decode("utf-8")
     assert upload_sink[result.pdf_report_s3_key].startswith(b"%PDF-")
+    assert upload_sink[result.word_report_s3_key].startswith(b"PK")
     assert "설명가능성 감사 리포트" in html
     assert "생성된 서술 문단" in html      # LLM 서술 삽입
     assert "EXT_SOURCE_3" in html          # 전역중요도 표
@@ -170,3 +192,40 @@ def test_generate_report_raises_when_payload_missing(monkeypatch):
 
     with pytest.raises(report_service.ReportGenerationError):
         report_service.generate_explainability_report(_request())
+
+
+def test_generate_report_raises_when_docx_generation_fails(
+    monkeypatch,
+):
+    upload_sink: dict = {}
+    complete_calls: list = []
+    _patch_common(monkeypatch, upload_sink, complete_calls)
+
+    monkeypatch.setattr(
+        report_service,
+        "analyze_local_files",
+        lambda request, model_path, dataset_path, output_dir: (
+            _fake_response(True)
+        ),
+    )
+
+    def fail_to_render_docx(**kwargs):
+        raise report_service.DocxGenerationError(
+            "Word 변환 실패"
+        )
+
+    monkeypatch.setattr(
+        report_service,
+        "render_report_to_docx",
+        fail_to_render_docx,
+    )
+
+    with pytest.raises(
+        report_service.ReportGenerationError,
+        match="Word 리포트 생성에 실패",
+    ):
+        report_service.generate_explainability_report(
+            _request(audit_id=42)
+        )
+
+    assert upload_sink == {}
