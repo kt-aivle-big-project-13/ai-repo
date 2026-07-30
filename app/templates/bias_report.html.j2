@@ -12,9 +12,13 @@
   h3 { font-size:1.05rem; margin-top:1.4rem; }
   .meta { color:var(--muted); font-size:.9rem; margin-bottom:8px; }
   table { border-collapse:collapse; width:100%; margin:12px 0; font-size:.88rem; }
-  th, td { border:1px solid var(--line); padding:7px 10px; text-align:left; }
+  th, td { border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top; }
   th { background:#f9fafb; }
+  /* 비교용 컬럼 표: 숫자는 우측 정렬(헤더 포함) */
   td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  /* key-value 표(라벨-값): 표 안 모든 셀 좌측 정렬로 통일 */
+  table.kv th, table.kv td { text-align:left; }
+  table.kv th { width:20%; }
   .narrative { background:#f9fafb; border-left:3px solid #cbd5e1; padding:10px 14px; margin:10px 0; }
   figure { margin:16px 0; text-align:center; }
   figure img { max-width:100%; border:1px solid var(--line); }
@@ -34,7 +38,7 @@
 <h2>1. 감사 개요</h2>
 <h3>감사 목적 및 범위</h3>
 <div class="narrative">{{ narratives.overview_purpose }}</div>
-<table>
+<table class="kv">
   <tr><th>고객 수</th><td class="num">{{ meta.n_customers }}</td>
       <th>전체 승인율</th><td class="num">{{ num(meta.approval_rate, 4) }}</td></tr>
   <tr><th>보호속성</th><td colspan="3">{{ audit.fairness_by_attribute.keys() | join(", ") }}</td></tr>
@@ -43,14 +47,14 @@
 <h2>2. 모델·데이터 및 승인 기준</h2>
 {% if audit.report_meta %}
 <h3>모델 기본정보</h3>
-<table>
+<table class="kv">
   <tr><th>모델 파일</th><td>{{ audit.report_meta.model_file }}</td>
       <th>XGBoost 버전</th><td>{{ audit.report_meta.xgboost_version }}</td></tr>
   <tr><th>입력 피처 수</th><td class="num">{{ audit.report_meta.n_features }}</td>
       <th>범주형 피처 수</th><td class="num">{{ audit.report_meta.n_categorical_features }}</td></tr>
 </table>
 <h3>분석 데이터 개요</h3>
-<table>
+<table class="kv">
   <tr><th>행 수</th><td class="num">{{ audit.report_meta.data_n_rows }}</td>
       <th>열 수</th><td class="num">{{ audit.report_meta.data_n_columns }}</td></tr>
   <tr><th>실제값 컬럼</th><td>{{ audit.report_meta.target_column }}</td>
@@ -58,7 +62,7 @@
 </table>
 {% endif %}
 <h3>승인 기준</h3>
-<table>
+<table class="kv">
   <tr><th>승인 임계값</th><td class="num">{{ num(audit.threshold.value) }}</td>
       <th>산출 방식</th><td>{{ audit.threshold.method.value }}</td></tr>
   <tr><th>기준 근거</th><td colspan="3" class="small">{{ audit.threshold.basis }}</td></tr>
@@ -79,7 +83,7 @@
 </ul>
 {% if audit.report_meta %}
 <h3>분석 전 입력 스키마 검증</h3>
-<table>
+<table class="kv">
   <tr><th>검증 통과</th><td>{{ "예" if audit.report_meta.schema_passed else "아니오" }}</td>
       <th>보호속성 모델 입력 포함</th>
       <td>{% for k, v in audit.report_meta.protected_in_model.items() %}{{ k }}={{ "예" if v else "아니오" }}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
@@ -152,7 +156,7 @@
 
 {% if audit.report_meta %}
 <h2>부록 · 증적 및 재현성</h2>
-<table>
+<table class="kv">
   <tr><th>실행 ID</th><td>{{ audit.report_meta.run_id }}</td></tr>
   <tr><th>생성 시각(UTC)</th><td>{{ audit.report_meta.generated_at_utc }}</td></tr>
   <tr><th>XGBoost 버전</th><td>{{ audit.report_meta.xgboost_version }}</td></tr>

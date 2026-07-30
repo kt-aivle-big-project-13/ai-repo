@@ -12,9 +12,32 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import font_manager, rcParams
 
 from app.schemas.audit import AuditRunResponse
 from app.schemas.fairness import FairnessStatus
+
+
+def _configure_korean_font() -> None:
+    """집단 라벨 등 데이터에서 온 한글이 깨지지 않도록 한글 폰트를 설정한다.
+
+    플랫폼별 후보 중 설치된 첫 폰트를 쓴다(Windows: Malgun Gothic, macOS:
+    AppleGothic, Linux: Nanum/Noto). 없으면 기본 폰트로 두되 최소한 마이너스
+    기호 깨짐은 막는다.
+    """
+    candidates = [
+        "Malgun Gothic", "AppleGothic", "NanumGothic",
+        "Noto Sans CJK KR", "Noto Sans KR", "NanumBarunGothic",
+    ]
+    available = {font.name for font in font_manager.fontManager.ttflist}
+    for name in candidates:
+        if name in available:
+            rcParams["font.family"] = name
+            break
+    rcParams["axes.unicode_minus"] = False
+
+
+_configure_korean_font()
 
 # 이미지 내부 라벨(영문) → 캡션(한글)은 dict["title"] 로 분리
 _DIFF_METRICS = [
