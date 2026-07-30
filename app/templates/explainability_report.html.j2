@@ -23,6 +23,34 @@
   figure img { max-width: 100%; border:1px solid var(--line); }
   figcaption { color: var(--muted); font-size: .85rem; margin-top: 6px; }
   .small { color: var(--muted); font-size: .82rem; }
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  @media print {
+    h1, h2, h3 {
+      break-after: avoid-page;
+      page-break-after: avoid;
+    }
+
+    tr,
+    figure,
+    .narrative {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    figure img {
+      max-height: 240mm;
+      object-fit: contain;
+    }
+
+    * {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
 </style>
 </head>
 <body>
