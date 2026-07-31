@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>규제준수 판정서 — 감사 {{ meta.audit_id }}</title>
+<style>
+  :root { --muted:#6b7280; --line:#e5e7eb; }
+  body { font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif; color:#111827;
+         max-width:880px; margin:0 auto; padding:40px 28px; line-height:1.65; }
+  h1 { font-size:1.7rem; margin-bottom:4px; }
+  h2 { font-size:1.25rem; margin-top:2.2rem; padding-bottom:6px; border-bottom:2px solid var(--line); }
+  h3 { font-size:1.05rem; margin-top:1.4rem; }
+  .meta { color:var(--muted); font-size:.9rem; margin-bottom:8px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:.88rem; }
+  th, td { border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:#f9fafb; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  table.kv th, table.kv td { text-align:left; }
+  table.kv th { width:20%; }
+  .narrative { background:#f9fafb; border-left:3px solid #cbd5e1; padding:10px 14px; margin:10px 0; }
+  .small { color:var(--muted); font-size:.82rem; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:6px; font-size:.78rem; }
+  .tag-ok { background:#ecfdf5; color:#065f46; }
+  .tag-no { background:#fef2f2; color:#991b1b; }
+  .tag-pending { background:#f3f4f6; color:#374151; }
+  .article { font-size:.84rem; color:#374151; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+
+{% macro num(value, digits=4) %}{% if value is none %}N/A{% else %}{{ "%.{}f".format(digits) % value }}{% endif %}{% endmacro %}
+{% macro verdict(status) %}{% if status == "COMPLIANT" %}<span class="tag tag-ok">준수</span>{% elif status == "NON_COMPLIANT" %}<span class="tag tag-no">미준수</span>{% else %}<span class="tag tag-pending">보류</span>{% endif %}{% endmacro %}
+
+<h1>규제준수 판정서</h1>
+<p class="meta">감사 ID {{ meta.audit_id }} · {{ meta.audit_name }}{% if meta.model_name %} · 모델 {{ meta.model_name }}{% endif %} · 생성 {{ meta.generated_at }}</p>
+<p class="small">본 판정서의 준수 여부는 <strong>운영기관의 자가점검 응답과 그에 매핑된 법령 조항</strong>을 근거로 함. 모델의 공정성 지표로 준수 여부를 판정한 것이 아니며, 공정성 수치는 6장에 참고값으로만 병기함.</p>
+
+<h2>1. 판정 개요</h2>
+<div class="narrative">{{ narratives.overview }}</div>
+<table class="kv">
+  <tr><th>감사명</th><td>{{ meta.audit_name }}</td>
+      <th>모델</th><td>{{ meta.model_name or "미기록" }}</td></tr>
+  <tr><th>판정 근거</th><td>자가점검 응답 기반 법령 매핑</td>
+      <th>판정 일시</th><td>{{ meta.generated_at }}</td></tr>
+</table>
+
+<h2>2. 종합 판정 결과</h2>
+<div class="narrative">{{ narratives.verdict_summary }}</div>
+<table>
+  <tr><th>판정</th><th class="num">조항 수</th></tr>
+  <tr><td>준수 (COMPLIANT)</td><td class="num">{{ counts.COMPLIANT }}</td></tr>
+  <tr><td>미준수 (NON_COMPLIANT)</td><td class="num">{{ counts.NON_COMPLIANT }}</td></tr>
+  <tr><td>보류 (PENDING)</td><td class="num">{{ counts.PENDING }}</td></tr>
+  <tr><th>합계</th><th class="num">{{ counts.TOTAL }}</th></tr>
+</table>
+
+<h2>3. 자가점검 결과</h2>
+<table>
+  <tr><th>항목</th><th>응답</th></tr>
+  {% for answer in self_check_answers %}
+  <tr><td>{{ answer.label }}</td><td>{{ "예" if answer.answer else "아니오" }}</td></tr>
+  {% endfor %}
+</table>
+<p class="small">자가점검 응답은 운영기관이 스스로 답한 사실관계임. 판정의 정확성은 이 응답의 정확성에 의존함.</p>
+
+<h2>4. 조항별 준수 판정</h2>
+<table>
+  <tr><th>법령</th><th>조항</th><th>판정</th><th>근거</th></tr>
+  {% for mapping in regulation_mappings %}
+  <tr><td>{{ mapping.law_name }}</td><td>{{ mapping.article_no }}</td>
+      <td>{{ verdict(mapping.compliance) }}</td>
+      <td class="small">{{ mapping.evidence }}</td></tr>
+  {% endfor %}
+</table>
+
+{% for mapping in regulation_mappings %}
+<h3>{{ mapping.law_name }} {{ mapping.article_no }} {{ verdict(mapping.compliance) }}</h3>
+{% if mapping.summary %}<p class="small">요지: {{ mapping.summary }}</p>{% endif %}
+{% if mapping.content %}<p class="article">{{ mapping.content }}</p>{% endif %}
+{% if mapping.effective_date or mapping.revision_date %}
+<p class="small">시행일 {{ mapping.effective_date or "미기록" }}{% if mapping.revision_date %} · 개정일 {{ mapping.revision_date }}{% endif %}</p>
+{% endif %}
+{% endfor %}
+
+<h2>5. 미준수 항목 상세</h2>
+<div class="narrative">{{ narratives.non_compliance }}</div>
+{% if non_compliant %}
+<table>
+  <tr><th>법령</th><th>조항</th><th>근거</th></tr>
+  {% for mapping in non_compliant %}
+  <tr><td>{{ mapping.law_name }}</td><td>{{ mapping.article_no }}</td>
+      <td class="small">{{ mapping.evidence }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="small">미준수로 판정된 조항 없음.</p>
+{% endif %}
+<p class="small">구체적 개선 방안은 별도 산출물(개선 권고 가이드)의 범위임.</p>
+
+{% if audit_reference %}
+<h2>6. 참고 · 감사 결과 요약</h2>
+<p class="small"><strong>아래 수치는 판정 근거가 아님.</strong> 공정성 지표에는 준수 여부를 가르는 임계값이 정해져 있지 않아, 맥락 제공 목적으로만 병기함.</p>
+<table class="kv">
+  <tr><th>고객 수</th><td class="num">{{ audit_reference.n_customers if audit_reference.n_customers is not none else "N/A" }}</td>
+      <th>전체 승인율</th><td class="num">{{ num(audit_reference.approval_rate) }}</td></tr>
+  <tr><th>승인 임계값</th><td class="num">{{ num(audit_reference.threshold) }}</td>
+      <th>산출 방식</th><td>{{ audit_reference.threshold_method or "미기록" }}</td></tr>
+  <tr><th>AUC</th><td class="num">{{ num(audit_reference.auc) }}</td>
+      <th>정확도</th><td class="num">{{ num(audit_reference.accuracy) }}</td></tr>
+</table>
+{% if audit_reference.fairness %}
+<table>
+  <tr><th>보호속성</th><th class="num">DPD</th><th class="num">Equal Opp</th><th class="num">Eq Odds</th><th class="num">Prop.Parity</th></tr>
+  {% for item in audit_reference.fairness %}
+  <tr><td>{{ item.attribute }}</td>
+      <td class="num">{{ num(item.demographic_parity_difference) }}</td>
+      <td class="num">{{ num(item.equal_opportunity_difference) }}</td>
+      <td class="num">{{ num(item.equalized_odds_difference) }}</td>
+      <td class="num">{{ num(item.proportional_parity_ratio) }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endif %}
+
+<h2>부록 · 판정 방법과 한계</h2>
+<div class="narrative">{{ narratives.limitation }}</div>
+<table class="kv">
+  <tr><th>판정 방식</th><td>자가점검 응답 → 정적 매핑표 → 법령 조항별 준수 판정</td></tr>
+  <tr><th>자가점검 항목 수</th><td class="num">{{ self_check_answers | length }}</td></tr>
+  <tr><th>판정 대상 조항 수</th><td class="num">{{ counts.TOTAL }}</td></tr>
+</table>
+<p class="small">공정성 지표 기반 준수 판정은 판정 임계값이 정책으로 확정된 뒤에 별도로 다룸.</p>
+
+</body>
+</html>
