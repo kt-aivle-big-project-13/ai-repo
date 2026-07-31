@@ -12,6 +12,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -23,6 +24,7 @@ from app.services.bias_figures import generate_bias_figures
 from app.services.bias_report_prompts import SYSTEM
 from app.services.fairness_analysis import analyze_s3_request as analyze_fairness_s3
 from app.services.llm import complete
+from app.services.report_pdf import render_html_to_pdf
 from app.services.storage import upload_s3_object
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
@@ -90,17 +92,31 @@ def generate_bias_report(request: BiasReportRequest) -> BiasReportResponse:
         }
     )
 
-    run_id = datetime.now(timezone.utc).strftime("bias_%Y%m%dT%H%M%SZ")
-    report_key = f"bias-reports/{request.audit_id}/{run_id}/report.html"
+    # 초 단위 시각만으로는 같은 초의 동시/재시도 요청이 같은 S3 키를 덮어쓰므로,
+    # 충돌 불가능한 uuid 를 붙여 실행마다 고유한 prefix 를 만든다.
+    run_id = (
+        f"bias_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        f"_{uuid4().hex}"
+    )
+    prefix = f"bias-reports/{request.audit_id}/{run_id}"
+    report_key = f"{prefix}/report.html"
+    pdf_report_key = f"{prefix}/report.pdf"
 
     with tempfile.TemporaryDirectory(prefix=f"bias_report_{request.audit_id}_") as tmp:
         html_path = Path(tmp) / "report.html"
+        pdf_path = Path(tmp) / "report.pdf"
         html_path.write_text(html, encoding="utf-8")
+
+        # HTML 을 Chromium(Playwright)으로 렌더해 서식 있는 PDF 로 변환한다.
+        render_html_to_pdf(html_path, pdf_path)
+
         upload_s3_object(html_path, report_key)
+        upload_s3_object(pdf_path, pdf_report_key)
 
     return BiasReportResponse(
         audit_id=request.audit_id,
         report_s3_key=report_key,
+        pdf_report_s3_key=pdf_report_key,
         format="html",
         generated_at=generated_at,
     )

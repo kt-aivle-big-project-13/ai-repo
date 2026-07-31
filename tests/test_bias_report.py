@@ -113,11 +113,16 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     monkeypatch.setattr(bias_report_service, "complete", fake_complete)
 
     def fake_upload(source, key):
-        upload_sink["key"] = key
-        upload_sink["html"] = Path(source).read_text(encoding="utf-8")
+        upload_sink[key] = Path(source).read_bytes()
         return key
 
     monkeypatch.setattr(bias_report_service, "upload_s3_object", fake_upload)
+
+    def fake_render_pdf(html_path, pdf_path):
+        Path(pdf_path).write_bytes(b"%PDF-test")
+        return Path(pdf_path).resolve()
+
+    monkeypatch.setattr(bias_report_service, "render_html_to_pdf", fake_render_pdf)
 
     result = bias_report_service.generate_bias_report(_request(audit_id=42))
 
@@ -125,6 +130,7 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     assert result.audit_id == 42
     assert result.report_s3_key.startswith("bias-reports/42/bias_")
     assert result.report_s3_key.endswith("/report.html")
+    assert result.pdf_report_s3_key.endswith("/report.pdf")
     assert result.generated_at
 
     # 메타 요청 플래그가 분석 호출에 전달됐는지 검증
@@ -133,7 +139,10 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     # 섹션별 5회 호출
     assert len(complete_calls) == 5
 
-    html = upload_sink["html"]
+    # PDF도 업로드됐는지 (Chromium 렌더는 mock)
+    assert upload_sink[result.pdf_report_s3_key].startswith(b"%PDF-")
+
+    html = upload_sink[result.report_s3_key].decode("utf-8")
     assert "편향진단 감사 리포트" in html
     assert "생성된 서술 문단" in html        # LLM 서술
     assert "CODE_GENDER" in html            # 집단표/지표표
