@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>개선 권고 가이드 — 감사 {{ meta.audit_id }}</title>
+<style>
+  :root { --muted:#6b7280; --line:#e5e7eb; }
+  body { font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif; color:#111827;
+         max-width:880px; margin:0 auto; padding:40px 28px; line-height:1.65; }
+  h1 { font-size:1.7rem; margin-bottom:4px; }
+  h2 { font-size:1.25rem; margin-top:2.2rem; padding-bottom:6px; border-bottom:2px solid var(--line); }
+  h3 { font-size:1.05rem; margin-top:1.4rem; }
+  .meta { color:var(--muted); font-size:.9rem; margin-bottom:8px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0; font-size:.88rem; }
+  th, td { border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:#f9fafb; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  table.kv th, table.kv td { text-align:left; }
+  table.kv th { width:20%; }
+  .narrative { background:#f9fafb; border-left:3px solid #cbd5e1; padding:10px 14px; margin:10px 0; }
+  .small { color:var(--muted); font-size:.82rem; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:6px; font-size:.78rem; }
+  .tag-high { background:#fef2f2; color:#991b1b; }
+  .tag-medium { background:#fffbeb; color:#92400e; }
+  .tag-low { background:#f3f4f6; color:#374151; }
+</style>
+</head>
+<body>
+
+{% macro priority(value) %}{% if value == "HIGH" %}<span class="tag tag-high">높음</span>{% elif value == "MEDIUM" %}<span class="tag tag-medium">중간</span>{% else %}<span class="tag tag-low">낮음</span>{% endif %}{% endmacro %}
+
+<h1>개선 권고 가이드</h1>
+<p class="meta">감사 ID {{ meta.audit_id }} · {{ meta.audit_name }}{% if meta.model_name %} · 모델 {{ meta.model_name }}{% endif %} · 생성 {{ meta.generated_at }}</p>
+<p class="small">본 가이드는 <strong>이미 임계값 판정을 거쳐 선별된 항목</strong>에 대한 개선 방향을 제시함. 판정을 새로 내리지 않으며, 우선순위는 항목의 성격과 판정 상태에 따라 정해짐.</p>
+
+<h2>1. 개선 개요</h2>
+<div class="narrative">{{ narratives.overview }}</div>
+<table class="kv">
+  <tr><th>감사명</th><td>{{ meta.audit_name }}</td>
+      <th>모델</th><td>{{ meta.model_name or "미기록" }}</td></tr>
+  <tr><th>전체 과제 수</th><td class="num">{{ counts.TOTAL }}</td>
+      <th>생성 일시</th><td>{{ meta.generated_at }}</td></tr>
+</table>
+
+<h2>2. 개선 과제 요약</h2>
+<table>
+  <tr><th>우선순위</th><th class="num">과제 수</th></tr>
+  <tr><td>높음</td><td class="num">{{ counts.HIGH }}</td></tr>
+  <tr><td>중간</td><td class="num">{{ counts.MEDIUM }}</td></tr>
+  <tr><td>낮음</td><td class="num">{{ counts.LOW }}</td></tr>
+  <tr><th>합계</th><th class="num">{{ counts.TOTAL }}</th></tr>
+</table>
+{% if actions %}
+<table>
+  <tr><th>우선순위</th><th>영역</th><th>대상</th><th>내용</th></tr>
+  {% for action in actions %}
+  <tr><td>{{ priority(action.priority) }}</td><td>{{ action.area }}</td>
+      <td>{{ action.target }}</td><td class="small">{{ action.detail }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="small">조치가 필요한 과제 없음.</p>
+{% endif %}
+
+<h2>3. 규제 준수 개선</h2>
+<div class="narrative">{{ narratives.regulation }}</div>
+{% if request.compliance_gaps %}
+<h3>미준수 법령 조항</h3>
+<table>
+  <tr><th>법령</th><th>조항</th><th>요지</th><th>근거</th></tr>
+  {% for gap in request.compliance_gaps %}
+  <tr><td>{{ gap.law_name }}</td><td>{{ gap.article_no }}</td>
+      <td class="small">{{ gap.summary or "미기록" }}</td>
+      <td class="small">{{ gap.evidence }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% if request.self_check_gaps %}
+<h3>자가점검 미충족 항목</h3>
+<table>
+  <tr><th>항목</th></tr>
+  {% for gap in request.self_check_gaps %}
+  <tr><td>{{ gap.label }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% if not request.compliance_gaps and not request.self_check_gaps %}
+<p class="small">규제 준수 영역에서 조치가 필요한 항목 없음.</p>
+{% endif %}
+
+<h2>4. 공정성 개선</h2>
+<div class="narrative">{{ narratives.fairness }}</div>
+{% if request.fairness_findings %}
+<table>
+  <tr><th>보호속성</th><th>지표</th><th class="num">관측값</th><th class="num">임계값</th><th>상태</th></tr>
+  {% for finding in request.fairness_findings %}
+  <tr><td>{{ finding.attribute or "-" }}</td><td>{{ finding.metric_code }}</td>
+      <td class="num">{{ finding.value if finding.value is not none else "N/A" }}</td>
+      <td class="num">{{ finding.threshold if finding.threshold is not none else "N/A" }}</td>
+      <td>{{ finding.status }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="small">임계값을 넘은 공정성 지표 없음.</p>
+{% endif %}
+
+<h2>5. 설명가능성 개선</h2>
+<div class="narrative">{{ narratives.explainability }}</div>
+{% if request.explainability_findings %}
+<table>
+  <tr><th>지표</th><th class="num">관측값</th><th class="num">임계값</th><th>상태</th></tr>
+  {% for finding in request.explainability_findings %}
+  <tr><td>{{ finding.metric_code }}</td>
+      <td class="num">{{ finding.value if finding.value is not none else "N/A" }}</td>
+      <td class="num">{{ finding.threshold if finding.threshold is not none else "N/A" }}</td>
+      <td>{{ finding.status }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="small">임계값을 넘은 설명가능성 지표 없음.</p>
+{% endif %}
+
+<h2>6. 이행 점검 항목</h2>
+<div class="narrative">{{ narratives.follow_up }}</div>
+
+<h2>부록 · 권고 범위와 한계</h2>
+<table class="kv">
+  <tr><th>선별 방식</th><td>백엔드에 저장된 임계값 판정 결과 중 조치가 필요한 항목만 포함</td></tr>
+  <tr><th>우선순위 기준</th><td>법령 미준수·공정성 FAIL은 높음, 공정성 REVIEW·설명가능성 REVIEW는 중간, 설명가능성 WARNING은 낮음</td></tr>
+</table>
+<p class="small">규제 준수 판단은 자가점검 응답에 기반하므로 응답의 정확성에 의존함. 공정성·설명가능성 지표가 기준 이내라는 것이 문제가 없음을 보장하지는 않음. 재감사 시점과 구체적 목표 수치는 이 가이드의 범위 밖임.</p>
+
+</body>
+</html>
