@@ -131,7 +131,13 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
     assert result.report_s3_key.startswith("bias-reports/42/bias_")
     assert result.report_s3_key.endswith("/report.html")
     assert result.pdf_report_s3_key.endswith("/report.pdf")
+    assert result.word_report_s3_key.endswith("/report.docx")
     assert result.generated_at
+
+    # 세 산출물이 같은 실행(prefix)에 묶여 있어야 백엔드가 한 건으로 저장한다.
+    prefix = result.report_s3_key.rsplit("/", maxsplit=1)[0]
+    assert result.pdf_report_s3_key.startswith(f"{prefix}/")
+    assert result.word_report_s3_key.startswith(f"{prefix}/")
 
     # 메타 요청 플래그가 분석 호출에 전달됐는지 검증
     assert analyze_calls["include_report_meta"] is True
@@ -141,6 +147,11 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
 
     # PDF도 업로드됐는지 (Chromium 렌더는 mock)
     assert upload_sink[result.pdf_report_s3_key].startswith(b"%PDF-")
+
+    # Word 는 실제로 생성한다. DOCX 는 zip 컨테이너라 PK 시그니처로 시작한다.
+    word_bytes = upload_sink[result.word_report_s3_key]
+    assert word_bytes.startswith(b"PK\x03\x04")
+    assert len(word_bytes) > 5_000
 
     html = upload_sink[result.report_s3_key].decode("utf-8")
     assert "편향진단 감사 리포트" in html

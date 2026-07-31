@@ -21,6 +21,7 @@ from app.schemas.bias_report import BiasReportRequest, BiasReportResponse
 from app.schemas.fairness_internal import FairnessAnalyzeRequest
 from app.services import bias_report_prompts
 from app.services.bias_figures import generate_bias_figures
+from app.services.bias_report_docx import render_bias_report_to_docx
 from app.services.bias_report_prompts import SYSTEM
 from app.services.fairness_analysis import analyze_s3_request as analyze_fairness_s3
 from app.services.llm import complete
@@ -101,22 +102,42 @@ def generate_bias_report(request: BiasReportRequest) -> BiasReportResponse:
     prefix = f"bias-reports/{request.audit_id}/{run_id}"
     report_key = f"{prefix}/report.html"
     pdf_report_key = f"{prefix}/report.pdf"
+    word_report_key = f"{prefix}/report.docx"
 
     with tempfile.TemporaryDirectory(prefix=f"bias_report_{request.audit_id}_") as tmp:
         html_path = Path(tmp) / "report.html"
         pdf_path = Path(tmp) / "report.pdf"
+        docx_path = Path(tmp) / "report.docx"
         html_path.write_text(html, encoding="utf-8")
 
         # HTML 을 Chromium(Playwright)으로 렌더해 서식 있는 PDF 로 변환한다.
         render_html_to_pdf(html_path, pdf_path)
 
+        # Word 는 HTML 변환이 아니라 같은 데이터로 다시 조판한다(HTML→DOCX 변환은
+        # 표·그림 서식이 깨져서 설명가능성 리포트도 같은 방식을 쓴다).
+        render_bias_report_to_docx(
+            meta={
+                "audit_id": request.audit_id,
+                "audit_name": audit.audit_name,
+                "generated_at": generated_at,
+                "n_customers": audit.n_customers,
+                "approval_rate": audit.approval_rate,
+            },
+            audit=audit,
+            narratives=narratives,
+            figures=figures,
+            docx_path=docx_path,
+        )
+
         upload_s3_object(html_path, report_key)
         upload_s3_object(pdf_path, pdf_report_key)
+        upload_s3_object(docx_path, word_report_key)
 
     return BiasReportResponse(
         audit_id=request.audit_id,
         report_s3_key=report_key,
         pdf_report_s3_key=pdf_report_key,
+        word_report_s3_key=word_report_key,
         format="html",
         generated_at=generated_at,
     )

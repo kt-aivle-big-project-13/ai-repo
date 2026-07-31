@@ -23,10 +23,11 @@ class BiasReportRequest(BaseModel):
 
 
 class BiasReportResponse(BaseModel):
-    """생성된 편향진단 리포트 산출물 참조."""
+    """생성된 편향진단 리포트 산출물 참조 (HTML·PDF·Word)."""
 
     audit_id: int
     report_s3_key: str
     pdf_report_s3_key: str
+    word_report_s3_key: str
     format: Literal["html"]
     generated_at: str
