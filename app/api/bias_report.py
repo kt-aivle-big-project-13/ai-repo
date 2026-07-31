@@ -7,7 +7,9 @@ from fastapi import APIRouter, HTTPException, status
 from app.schemas.bias_report import BiasReportRequest, BiasReportResponse
 from app.services.audit import ValidationBlockedError
 from app.services.bias_report import generate_bias_report
+from app.services.docx_common import DocxGenerationError
 from app.services.llm import LLMConfigurationError, LLMRequestError
+from app.services.report_pdf import PdfGenerationError
 from app.services.storage import (
     S3ConfigurationError,
     S3DownloadError,
@@ -66,6 +68,16 @@ def create_bias_report(request: BiasReportRequest) -> BiasReportResponse:
     except (FileNotFoundError, ValueError) as exception:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exception),
+        ) from exception
+    except (PdfGenerationError, DocxGenerationError) as exception:
+        # 서버 쪽 렌더 실패라 요청을 고쳐도 해결되지 않으므로 500 으로 돌려준다.
+        logger.exception(
+            "편향 리포트 문서 렌더 실패: audit_id=%s",
+            request.audit_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exception),
         ) from exception
     except Exception as exception:
