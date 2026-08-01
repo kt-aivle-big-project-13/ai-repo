@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # 법령 조문 요약 임베딩 생성용 모델. API 키·엔드포인트는 위 LLM 설정을 공유한다.
     openai_embedding_model: str = "text-embedding-3-small"
 
+    # 대화형 질의 응답용 모델. 지정하지 않으면 통일 모델을 그대로 쓴다.
+    # 리포트 생성과 달리 응답 지연이 UX 에 직결되므로, 필요할 때 .env 만 바꿔
+    # 전환할 수 있도록 분리해 둔다.
+    openai_chat_model: str | None = None
+
+    @property
+    def chat_model(self) -> str:
+        """대화용 모델 ID. 미지정 시 통일 모델을 쓴다."""
+        return self.openai_chat_model or self.openai_model
+
 
 @lru_cache
 def get_settings() -> Settings:
