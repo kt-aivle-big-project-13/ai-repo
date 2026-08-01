@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>고영향 AI 사전진단 보고서</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 16mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: #172033;
+      font-family:
+        "Malgun Gothic",
+        "Apple SD Gothic Neo",
+        sans-serif;
+      font-size: 10pt;
+      line-height: 1.6;
+      background: #ffffff;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    .report-header {
+      padding-bottom: 18px;
+      margin-bottom: 24px;
+      border-bottom: 3px solid #2563eb;
+    }
+
+    .report-eyebrow {
+      margin-bottom: 6px;
+      color: #2563eb;
+      font-size: 9pt;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .report-title {
+      margin-bottom: 8px;
+      font-size: 24pt;
+      line-height: 1.3;
+    }
+
+    .report-subtitle {
+      margin-bottom: 0;
+      color: #64748b;
+    }
+
+    .section {
+      margin-bottom: 24px;
+      break-inside: avoid;
+    }
+
+    .section-title {
+      padding-bottom: 6px;
+      margin-bottom: 12px;
+      font-size: 15pt;
+      border-bottom: 1px solid #cbd5e1;
+    }
+
+    .summary-card {
+      padding: 18px;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      background: #eff6ff;
+      break-inside: avoid;
+    }
+
+    .summary-label {
+      display: block;
+      margin-bottom: 4px;
+      color: #475569;
+      font-size: 9pt;
+      font-weight: 700;
+    }
+
+    .summary-result {
+      display: block;
+      margin-bottom: 8px;
+      color: #1d4ed8;
+      font-size: 20pt;
+      font-weight: 800;
+    }
+
+    .summary-result--not-applicable {
+      color: #475569;
+    }
+
+    .summary-reason {
+      margin-bottom: 0;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .info-item {
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      break-inside: avoid;
+    }
+
+    .info-label {
+      display: block;
+      margin-bottom: 3px;
+      color: #64748b;
+      font-size: 8.5pt;
+      font-weight: 700;
+    }
+
+    .info-value {
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    thead {
+      display: table-header-group;
+    }
+
+    tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    th,
+    td {
+      padding: 8px;
+      border: 1px solid #cbd5e1;
+      text-align: left;
+      vertical-align: middle;
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      color: #334155;
+      font-size: 9pt;
+      background: #f1f5f9;
+    }
+
+    .column-code {
+      width: 13%;
+    }
+
+    .column-answer {
+      width: 11%;
+      text-align: center;
+    }
+
+    .column-weight,
+    .column-score {
+      width: 10%;
+      text-align: center;
+    }
+
+    .answer-yes {
+      color: #047857;
+      font-weight: 800;
+    }
+
+    .answer-no {
+      color: #64748b;
+      font-weight: 700;
+    }
+
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .score-card {
+      padding: 14px;
+      text-align: center;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      break-inside: avoid;
+    }
+
+    .score-card--total {
+      color: #1d4ed8;
+      border-color: #93c5fd;
+      background: #eff6ff;
+    }
+
+    .score-name {
+      display: block;
+      margin-bottom: 4px;
+      color: #64748b;
+      font-size: 9pt;
+      font-weight: 700;
+    }
+
+    .score-value {
+      font-size: 18pt;
+      font-weight: 800;
+    }
+
+    .criteria-box,
+    .notice-box {
+      padding: 12px 14px;
+      border-radius: 6px;
+      break-inside: avoid;
+    }
+
+    .criteria-box {
+      border-left: 4px solid #2563eb;
+      background: #f8fafc;
+    }
+
+    .notice-box {
+      color: #475569;
+      font-size: 9pt;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    .criteria-box p:last-child,
+    .notice-box p:last-child {
+      margin-bottom: 0;
+    }
+
+    .report-footer {
+      padding-top: 10px;
+      margin-top: 28px;
+      color: #94a3b8;
+      font-size: 8pt;
+      text-align: center;
+      border-top: 1px solid #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+  <header class="report-header">
+    <p class="report-eyebrow">HIGH-IMPACT AI PRE-ASSESSMENT</p>
+    <h1 class="report-title">고영향 AI 사전진단 보고서</h1>
+    <p class="report-subtitle">
+      저장된 문항별 응답과 내부 판정 기준에 따라 자동 생성된 결과서입니다.
+    </p>
+  </header>
+
+  <main>
+    <section class="section">
+      <h2 class="section-title">1. 사전진단 개요</h2>
+
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">감사 ID</span>
+          <span class="info-value">{{ request.audit_id }}</span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label">사전진단 ID</span>
+          <span class="info-value">{{ request.assessment_id }}</span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label">감사명</span>
+          <span class="info-value">{{ request.audit_name }}</span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label">진단 일시</span>
+          <span class="info-value">{{ assessed_at }}</span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label">모델명</span>
+          <span class="info-value">{{ request.model_name }}</span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label">모델 버전</span>
+          <span class="info-value">{{ request.model_version or "미기재" }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">2. 최종 판정</h2>
+
+      <div class="summary-card">
+        <span class="summary-label">고영향 AI 해당 여부</span>
+        <strong
+          class="summary-result{% if request.result == 'NOT_APPLICABLE' %} summary-result--not-applicable{% endif %}"
+        >
+          {{ result_label }}
+        </strong>
+        <p class="summary-reason">{{ decision_reason }}</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">3. 정성 게이트 응답</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th class="column-code">문항 코드</th>
+            <th>진단 문항</th>
+            <th class="column-answer">응답</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for answer in qualitative_answers %}
+          <tr>
+            <td>{{ answer.question_code }}</td>
+            <td>{{ answer.question_text }}</td>
+            <td class="column-answer">
+              <span class="{{ 'answer-yes' if answer.answer else 'answer-no' }}">
+                {{ "예" if answer.answer else "아니요" }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    {% if quantitative_answers %}
+    <section class="section">
+      <h2 class="section-title">4. 정량 배점 응답</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th class="column-code">문항 코드</th>
+            <th>진단 문항</th>
+            <th class="column-answer">응답</th>
+            <th class="column-weight">배점</th>
+            <th class="column-score">획득 점수</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for answer in quantitative_answers %}
+          <tr>
+            <td>{{ answer.question_code }}</td>
+            <td>{{ answer.question_text }}</td>
+            <td class="column-answer">
+              <span class="{{ 'answer-yes' if answer.answer else 'answer-no' }}">
+                {{ "예" if answer.answer else "아니요" }}
+              </span>
+            </td>
+            <td class="column-weight">{{ answer.weight }}점</td>
+            <td class="column-score">{{ answer.score }}점</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    <section class="section">
+      <h2 class="section-title">
+        {{ "5" if quantitative_answers else "4" }}. 점수 산정 결과
+      </h2>
+
+      <div class="score-grid">
+        <div class="score-card">
+          <span class="score-name">A그룹 점수</span>
+          <strong class="score-value">{{ request.group_a_score }}점</strong>
+        </div>
+
+        <div class="score-card">
+          <span class="score-name">B그룹 점수</span>
+          <strong class="score-value">{{ request.group_b_score }}점</strong>
+        </div>
+
+        <div class="score-card score-card--total">
+          <span class="score-name">합산 점수</span>
+          <strong class="score-value">{{ request.total_score }}점</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">
+        {{ "6" if quantitative_answers else "5" }}. 판정 기준
+      </h2>
+
+      <div class="criteria-box">
+        <p>
+          정성 게이트 문항 중 하나 이상이 “예”이면 정량 배점 없이
+          고영향 AI로 판정합니다.
+        </p>
+        <p>
+          정성 게이트를 충족하지 않은 경우 A그룹과 B그룹의 합산 점수가
+          4점 이상이면 고영향 AI로 판정합니다.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">
+        {{ "7" if quantitative_answers else "6" }}. 유의사항
+      </h2>
+
+      <div class="notice-box">
+        <p>
+          본 보고서는 사용자가 제출한 사전진단 응답과 시스템 내부 판정
+          기준을 기반으로 자동 생성되었습니다.
+        </p>
+        <p>
+          실제 법적 의무와 적용 범위는 관련 법령, 감독기관 지침 및
+          전문가 검토 결과에 따라 달라질 수 있습니다.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="report-footer">
+    FinAuditAI · 고영향 AI 사전진단 보고서
+  </footer>
+</body>
+</html>
