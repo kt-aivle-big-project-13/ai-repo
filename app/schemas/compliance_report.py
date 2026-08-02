@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.report_narrative import ReportNarrative
+
 
 class SelfCheckAnswer(BaseModel):
     """자가점검 항목 하나에 대한 응답. 판정의 1차 근거다."""
@@ -76,3 +78,7 @@ class ComplianceReportResponse(BaseModel):
     non_compliant_count: int
     pending_count: int
     generated_at: str
+
+    # 챗봇이 리포트와 일관된 설명을 하도록 섹션별 서술을 함께 돌려준다.
+    # 이미 생성한 값이라 추가 LLM 호출은 없다.
+    narratives: list[ReportNarrative] = Field(default_factory=list)

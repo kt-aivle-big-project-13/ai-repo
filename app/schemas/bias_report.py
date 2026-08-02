@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.report_narrative import ReportNarrative
+
 
 class BiasReportRequest(BaseModel):
     """백엔드에서 전달받는 편향진단 리포트 생성 요청 (S3 Key 기반).
@@ -31,3 +33,7 @@ class BiasReportResponse(BaseModel):
     word_report_s3_key: str
     format: Literal["html"]
     generated_at: str
+
+    # 챗봇이 리포트와 일관된 설명을 하도록 섹션별 서술을 함께 돌려준다.
+    # 이미 생성한 값이라 추가 LLM 호출은 없다.
+    narratives: list[ReportNarrative] = Field(default_factory=list)

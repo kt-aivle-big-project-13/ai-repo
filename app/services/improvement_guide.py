@@ -18,6 +18,7 @@ from app.schemas.improvement_guide import (
     ImprovementGuideRequest,
     ImprovementGuideResponse,
 )
+from app.schemas.report_narrative import build_narratives
 from app.services import improvement_guide_prompts
 from app.services.improvement_guide_docx import render_improvement_guide_to_docx
 from app.services.improvement_guide_prompts import SYSTEM
@@ -27,6 +28,16 @@ from app.services.storage import upload_s3_object
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 TEMPLATE_NAME = "improvement_guide.html.j2"
+
+# 섹션 서술을 챗봇 근거로 넘길 때 쓰는 목차 제목. 리포트 목차는 이 저장소가 소유하는
+# 정보라, 키만이 아니라 제목까지 함께 반환한다.
+NARRATIVE_TITLES = {
+    "overview": "1. 개선 개요",
+    "regulation": "3. 규제 준수 개선",
+    "fairness": "4. 공정성 개선",
+    "explainability": "5. 설명가능성 개선",
+    "follow_up": "6. 이행 점검 항목",
+}
 
 PRIORITY_LABELS = {"HIGH": "높음", "MEDIUM": "중간", "LOW": "낮음"}
 
@@ -203,4 +214,5 @@ def generate_improvement_guide(
         medium_priority_count=counts["MEDIUM"],
         low_priority_count=counts["LOW"],
         generated_at=generated_at,
+        narratives=build_narratives(narratives, NARRATIVE_TITLES),
     )
