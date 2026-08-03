@@ -142,6 +142,20 @@ def test_strips_consecutive_citation_markers():
     assert result.answer == "값은 0.1123 입니다."
 
 
+def test_strips_citation_marker_without_eating_preceding_newline():
+    """줄 시작에 표기가 와도 그 앞의 줄바꿈은 지우지 않는다.
+
+    \\s*로 지우면 개행도 공백으로 취급돼 "문장\\n[1]다음"이 "문장다음"으로
+    붙어버린다. 공백/탭([ \\t])만 지워야 줄 구조가 유지된다.
+    """
+
+    fake, _ = _fake_complete("첫 문장입니다.\n[1]다음 문장입니다.")
+
+    result = generate_chat_answer(_request(), complete_fn=fake)
+
+    assert result.answer == "첫 문장입니다.\n다음 문장입니다."
+
+
 def test_deduplicates_and_ignores_unknown_citation_numbers():
     fake, _ = _fake_complete("값은 0.1123 입니다[1][1][9].")
 
