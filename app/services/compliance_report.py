@@ -20,6 +20,7 @@ from app.schemas.compliance_report import (
     ComplianceReportRequest,
     ComplianceReportResponse,
 )
+from app.schemas.report_narrative import build_narratives
 from app.services import compliance_report_prompts
 from app.services.compliance_report_docx import render_compliance_report_to_docx
 from app.services.compliance_report_prompts import SYSTEM
@@ -29,6 +30,15 @@ from app.services.storage import upload_s3_object
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 TEMPLATE_NAME = "compliance_report.html.j2"
+
+# 섹션 서술을 챗봇 근거로 넘길 때 쓰는 목차 제목. 리포트 목차는 이 저장소가 소유하는
+# 정보라, 키만이 아니라 제목까지 함께 반환한다.
+NARRATIVE_TITLES = {
+    "overview": "1. 판정 개요",
+    "verdict_summary": "2. 종합 판정 결과",
+    "non_compliance": "5. 미준수 항목 상세",
+    "limitation": "부록 · 판정 방법과 한계",
+}
 
 
 def count_verdicts(request: ComplianceReportRequest) -> dict[str, int]:
@@ -149,4 +159,5 @@ def generate_compliance_report(
         non_compliant_count=counts["NON_COMPLIANT"],
         pending_count=counts["PENDING"],
         generated_at=generated_at,
+        narratives=build_narratives(narratives, NARRATIVE_TITLES),
     )

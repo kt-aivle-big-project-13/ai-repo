@@ -18,6 +18,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.schemas.audit import AuditRunResponse
 from app.schemas.bias_report import BiasReportRequest, BiasReportResponse
+from app.schemas.report_narrative import build_narratives
 from app.schemas.fairness_internal import FairnessAnalyzeRequest
 from app.services import bias_report_prompts
 from app.services.bias_figures import generate_bias_figures
@@ -30,6 +31,16 @@ from app.services.storage import upload_s3_object
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 TEMPLATE_NAME = "bias_report.html.j2"
+
+# 섹션 서술을 챗봇 근거로 넘길 때 쓰는 목차 제목. 리포트 목차는 이 저장소가 소유하는
+# 정보라, 키만이 아니라 제목까지 함께 반환한다.
+NARRATIVE_TITLES = {
+    "overview_purpose": "1. 감사 개요",
+    "group_results": "4. 집단별 결과 (기술통계)",
+    "metric_results": "5. 공정성 지표 결과",
+    "tradeoff": "6. 성능–공정성 트레이드오프",
+    "overall_summary": "7. 종합 (기술 요약)",
+}
 
 
 def _build_narratives(
@@ -140,4 +151,5 @@ def generate_bias_report(request: BiasReportRequest) -> BiasReportResponse:
         word_report_s3_key=word_report_key,
         format="html",
         generated_at=generated_at,
+        narratives=build_narratives(narratives, NARRATIVE_TITLES),
     )

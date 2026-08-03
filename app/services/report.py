@@ -14,6 +14,7 @@ from typing import Any, Callable
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.schemas.report import ReportRequest, ReportResponse
+from app.schemas.report_narrative import build_narratives
 from app.schemas.shap import ShapAnalysisRequest, ShapReport
 from app.services import report_prompts
 from app.services.llm import complete
@@ -28,6 +29,16 @@ from app.services.storage import download_s3_object, upload_s3_object
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 TEMPLATE_NAME = "explainability_report.html.j2"
+
+# 섹션 서술을 챗봇 근거로 넘길 때 쓰는 목차 제목. 리포트 목차는 이 저장소가 소유하는
+# 정보라, 키만이 아니라 제목까지 함께 반환한다.
+NARRATIVE_TITLES = {
+    "overview_purpose": "1. 감사 개요",
+    "results_summary": "1. 감사 개요 · 감사 결과 요약",
+    "global_interpretation": "4. 전역 설명 분석",
+    "reliability_summary": "5. 설명 신뢰성 검증",
+    "overall_assessment": "7. 종합 평가",
+}
 
 # 리포트에 싣는 figure 파일과 캡션.
 FIGURE_TITLES: dict[str, str] = {
@@ -215,4 +226,5 @@ def generate_explainability_report(request: ReportRequest) -> ReportResponse:
             format="html",
             overall_status=analysis.overall_status,
             generated_at=generated_at,
+            narratives=build_narratives(narratives, NARRATIVE_TITLES),
         )
