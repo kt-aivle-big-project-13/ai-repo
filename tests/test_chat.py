@@ -115,6 +115,33 @@ def test_parses_only_cited_items():
     )
 
 
+def test_strips_citation_markers_from_visible_answer():
+    """[n] 표기는 근거 목록 순번일 뿐이라 화면에 노출되는 답변에서는 지운다."""
+
+    fake, _ = _fake_complete(
+        "AGE_GROUP 의 Equal Opportunity Difference 는 0.1123 입니다[1]. "
+        "20대 승인율은 0.7215 로 관측됩니다[2]."
+    )
+
+    result = generate_chat_answer(_request(), complete_fn=fake)
+
+    assert "[1]" not in result.answer
+    assert "[2]" not in result.answer
+    assert "0.1123" in result.answer
+    # 인용 자체(citations)는 문면에서 지워도 그대로 구조화되어 남는다.
+    assert len(result.citations) == 2
+
+
+def test_strips_consecutive_citation_markers():
+    """[1][3] 처럼 붙어 있는 표기도 지운 자리에 빈 공백이 남지 않는다."""
+
+    fake, _ = _fake_complete("값은 0.1123 입니다[1][2].")
+
+    result = generate_chat_answer(_request(), complete_fn=fake)
+
+    assert result.answer == "값은 0.1123 입니다."
+
+
 def test_deduplicates_and_ignores_unknown_citation_numbers():
     fake, _ = _fake_complete("값은 0.1123 입니다[1][1][9].")
 

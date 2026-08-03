@@ -28,6 +28,10 @@ from app.services.llm import complete
 
 CITATION_PATTERN = re.compile(r"\[(\d+)\]")
 
+# 문면에서 [n] 표기를 지울 때 쓴다. 인용 파싱(CITATION_PATTERN)과 별개로, 연속된
+# [1][3] 같은 표기와 그 앞의 공백까지 한 번에 지워 지운 자리에 빈 공백이 남지 않게 한다.
+CITATION_MARKER_PATTERN = re.compile(r"\s*(?:\[\d+\])+")
+
 # 지표 값처럼 소수점이 있는 수만 검증한다. 정수는 "1장", "5개", 연도처럼 근거와
 # 무관하게 등장하는 경우가 많아 오탐이 커진다.
 DECIMAL_PATTERN = re.compile(r"\d+\.\d+")
@@ -53,6 +57,16 @@ def _parse_citations(
         citations.append(by_index[index].citation)
 
     return citations
+
+
+def _strip_citation_markers(answer: str) -> str:
+    """답변 문면에서 [n] 표기를 지운다.
+
+    번호는 근거 목록의 순번일 뿐 사용자에게는 의미가 없고, 실제 인용 내용은
+    이미 `citations`로 구조화해 돌려주므로 문장에는 남기지 않는다.
+    """
+
+    return CITATION_MARKER_PATTERN.sub("", answer)
 
 
 def _has_unsupported_number(
@@ -118,16 +132,17 @@ def generate_chat_answer(
     ).strip()
 
     citations = _parse_citations(answer, items)
+    grounding_status = _judge_grounding(
+        answer,
+        request.question,
+        citations,
+        items,
+    )
 
     return ChatAnswerResponse(
         audit_id=request.audit_id,
-        answer=answer,
+        answer=_strip_citation_markers(answer),
         citations=citations,
-        grounding_status=_judge_grounding(
-            answer,
-            request.question,
-            citations,
-            items,
-        ),
+        grounding_status=grounding_status,
         generated_at=generated_at,
     )
