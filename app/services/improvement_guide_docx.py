@@ -219,6 +219,28 @@ def _add_follow_up(
     add_narrative(document, narratives["follow_up"])
 
 
+def _add_recommendations(
+    document: DocumentObject,
+    request: ImprovementGuideRequest,
+    narratives: dict[str, str],
+) -> None:
+    add_heading(document, "7. 참고 권고 (노력의무)", level=1)
+    add_note(
+        document,
+        "아래 항목은 법이 \"노력하여야 한다\"고 정한 노력의무라, 위반이 아니라 권장 사항임.",
+    )
+    add_narrative(document, narratives["recommendations"])
+
+    if request.self_check_recommendations:
+        add_table(
+            document,
+            ["항목"],
+            [[gap.label] for gap in request.self_check_recommendations],
+        )
+    else:
+        add_note(document, "노력의무 영역에서 별도로 권고할 사항 없음.")
+
+
 def _add_appendix(document: DocumentObject) -> None:
     add_heading(document, "부록 · 권고 범위와 한계", level=1)
 
@@ -266,6 +288,7 @@ def render_improvement_guide_to_docx(
         _add_fairness(document, request, narratives)
         _add_explainability(document, request, narratives)
         _add_follow_up(document, narratives)
+        _add_recommendations(document, request, narratives)
         _add_appendix(document)
 
         document.save(str(destination))

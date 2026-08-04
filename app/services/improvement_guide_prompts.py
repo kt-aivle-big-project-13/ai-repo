@@ -155,6 +155,32 @@ def explainability_prompt(request: ImprovementGuideRequest) -> str:
     )
 
 
+def recommendations_prompt(request: ImprovementGuideRequest) -> str:
+    """7장 참고 권고(노력의무) — 위반이 아닌 권장 사항만 따로 서술."""
+
+    if not request.self_check_recommendations:
+        return (
+            "노력의무 문항에서 '아니오'로 답한 항목이 없다.\n\n"
+            "노력의무 영역에서 별도로 권고할 사항이 없다는 사실을 서술하라."
+        )
+
+    facts = _facts(
+        {
+            "노력의무_참고권고": [
+                {"항목": gap.label} for gap in request.self_check_recommendations
+            ]
+        }
+    )
+
+    return (
+        "아래는 노력의무 문항에서 '아니오'로 답한 항목이다.\n\n"
+        f"{facts}\n\n"
+        "이 항목들은 법이 '노력하여야 한다'고 정한 권장 사항이라 미이행이 위반은 아니라는 "
+        "점을 먼저 밝혀라. 그런 다음 각 항목에 대해 어떤 조치를 하면 좋을지 권고 톤으로 "
+        "서술하라. '위반', '미이행', '미충족'이라는 표현은 쓰지 않는다."
+    )
+
+
 def follow_up_prompt(
     request: ImprovementGuideRequest,
     counts: dict[str, int],

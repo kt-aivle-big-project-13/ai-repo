@@ -132,8 +132,8 @@ def test_generates_three_artifacts(patched_service):
     assert result.pdf_report_s3_key.startswith(f"{prefix}/")
     assert result.word_report_s3_key.startswith(f"{prefix}/")
 
-    # 섹션별 5회 호출
-    assert len(complete_calls) == 5
+    # 섹션별 6회 호출 (overview·regulation·fairness·explainability·follow_up·recommendations)
+    assert len(complete_calls) == 6
 
     assert upload_sink[result.pdf_report_s3_key].startswith(b"%PDF-")
     assert upload_sink[result.word_report_s3_key].startswith(b"PK\x03\x04")
@@ -180,6 +180,7 @@ def test_word_document_structure(patched_service, tmp_path):
         "4. 공정성 개선",
         "5. 설명가능성 개선",
         "6. 이행 점검 항목",
+        "7. 참고 권고 (노력의무)",
         "부록 · 권고 범위와 한계",
     ):
         assert heading in text, heading
@@ -223,3 +224,38 @@ def test_handles_no_action_needed(patched_service):
     assert "규제 준수 영역에서 조치가 필요한 항목 없음" in html
     assert "임계값을 넘은 공정성 지표 없음" in html
     assert "임계값을 넘은 설명가능성 지표 없음" in html
+    assert "노력의무 영역에서 별도로 권고할 사항 없음" in html
+
+
+def test_self_check_recommendations_are_separate_from_action_list(patched_service):
+    """노력의무 '아니오' 항목은 위반이 아니므로 우선순위 과제 목록엔 안 들어가고,
+    별도 참고 권고 섹션에만 나타난다."""
+
+    upload_sink, _ = patched_service
+
+    request = _request(
+        self_check_recommendations=[
+            SelfCheckGap(
+                item_code="IA-01",
+                label="서비스 제공 전 사람의 기본권에 미치는 영향을 평가하고 문서화했나요?",
+            )
+        ]
+    )
+
+    actions = guide_service.build_actions(request)
+    assert all("IA-01" not in action["target"] for action in actions)
+    assert all(
+        "기본권에 미치는 영향" not in action["detail"] for action in actions
+    )
+
+    result = guide_service.generate_improvement_guide(request)
+
+    # 노력의무 항목이 추가돼도 우선순위 과제 수(HIGH/MEDIUM/LOW)엔 영향 없다.
+    assert result.high_priority_count == 3
+    assert result.medium_priority_count == 1
+    assert result.low_priority_count == 1
+
+    html = upload_sink[result.report_s3_key].decode("utf-8")
+    assert "7. 참고 권고 (노력의무)" in html
+    assert "서비스 제공 전 사람의 기본권에 미치는 영향을 평가하고 문서화했나요?" in html
+    assert "위반이 아니라 권장 사항" in html

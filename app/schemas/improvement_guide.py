@@ -52,6 +52,10 @@ class ImprovementGuideRequest(BaseModel):
     model_name: str | None = None
     compliance_gaps: list[ComplianceGap] = Field(default_factory=list)
     self_check_gaps: list[SelfCheckGap] = Field(default_factory=list)
+    # 노력의무 문항(예: 영향평가, 사전 검·인증)에서 '아니오'로 답한 것들. self_check_gaps와
+    # 달리 위반이 아니라 권장 사항이라, 우선순위 과제 목록(actions)엔 안 들어가고 별도
+    # 참고 권고 섹션으로만 서술된다.
+    self_check_recommendations: list[SelfCheckGap] = Field(default_factory=list)
     fairness_findings: list[MetricFinding] = Field(default_factory=list)
     explainability_findings: list[MetricFinding] = Field(default_factory=list)
 
