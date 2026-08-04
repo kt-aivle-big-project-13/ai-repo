@@ -37,6 +37,7 @@ NARRATIVE_TITLES = {
     "fairness": "4. 공정성 개선",
     "explainability": "5. 설명가능성 개선",
     "follow_up": "6. 이행 점검 항목",
+    "recommendations": "7. 참고 권고 (노력의무)",
 }
 
 PRIORITY_LABELS = {"HIGH": "높음", "MEDIUM": "중간", "LOW": "낮음"}
@@ -132,6 +133,9 @@ def _build_narratives(
         "follow_up": complete_fn(
             improvement_guide_prompts.follow_up_prompt(request, counts),
             system=SYSTEM,
+        ),
+        "recommendations": complete_fn(
+            improvement_guide_prompts.recommendations_prompt(request), system=SYSTEM
         ),
     }
 
