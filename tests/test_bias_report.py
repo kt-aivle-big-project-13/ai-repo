@@ -6,10 +6,10 @@
 
 from pathlib import Path
 
-import app.services.bias_report as bias_report_service
+import app.services.bias.bias_report as bias_report_service
 from app.schemas.audit import AuditReportMeta, AuditRunResponse, FairnessMetricValues
-from app.schemas.bias_report import BiasReportRequest
-from app.schemas.fairness import AttributeFairness, FairnessStatus, GroupStat
+from app.schemas.bias.bias_report import BiasReportRequest
+from app.schemas.fairness.fairness import AttributeFairness, FairnessStatus, GroupStat
 from app.schemas.performance import PerformanceSummary
 from app.schemas.scoring import CalibrationSource, ThresholdInfo, ThresholdMethod
 

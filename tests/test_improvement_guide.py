@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-import app.services.improvement_guide as guide_service
-from app.schemas.improvement_guide import (
+import app.services.improvement.improvement_guide as guide_service
+from app.schemas.improvement.improvement_guide import (
     ComplianceGap,
     ImprovementGuideRequest,
     MetricFinding,

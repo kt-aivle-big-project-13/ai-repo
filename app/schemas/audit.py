@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from app.schemas.fairness import AttributeFairness
+from app.schemas.fairness.fairness import AttributeFairness
 from app.schemas.performance import PerformanceSummary
 from app.schemas.scoring import CalibrationSource, ThresholdInfo
 from app.schemas.validation import ValidationIssue

@@ -10,7 +10,7 @@ import pytest
 from docx import Document
 from docx.shared import Cm
 
-from app.services.bias_report_docx import render_bias_report_to_docx
+from app.services.bias.bias_report_docx import render_bias_report_to_docx
 from app.services.docx_common import DocxGenerationError
 from tests.test_bias_report import _audit
 

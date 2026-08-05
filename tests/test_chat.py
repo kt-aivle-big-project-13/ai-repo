@@ -3,14 +3,14 @@
 LLM 은 mock 하고, 근거 번호 부여·인용 파싱·grounding_status 판정은 실제로 수행한다.
 """
 
-from app.schemas.chat import (
+from app.schemas.chat.chat import (
     AuditFact,
     ChatAnswerRequest,
     LawArticle,
     ReportSection,
 )
-from app.services import chat_prompts
-from app.services.chat import generate_chat_answer
+from app.services.chat import chat_prompts
+from app.services.chat.chat import generate_chat_answer
 
 
 def _request(**overrides) -> ChatAnswerRequest:

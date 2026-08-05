@@ -1,15 +1,15 @@
 """고영향 AI 사전진단 HTML 보고서 테스트."""
 from pathlib import Path
 
-from app.schemas.high_impact_report import HighImpactReportRequest
-from app.services import high_impact_report as report_service
-from app.services.high_impact_report import (
+from app.schemas.highimpact.high_impact_report import HighImpactReportRequest
+from app.services.highimpact import high_impact_report as report_service
+from app.services.highimpact.high_impact_report import (
     render_high_impact_report_html,
 )
-from app.services.high_impact_report_docx import (
+from app.services.highimpact.high_impact_report_docx import (
     render_high_impact_report_to_docx,
 )
-from app.services.report_pdf import render_html_to_pdf
+from app.services.report.report_pdf import render_html_to_pdf
 
 def _gate_answer(
     question_code: str,

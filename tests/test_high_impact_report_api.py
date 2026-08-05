@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
-from app.api import high_impact_report as report_api
+from app.api.highimpact import high_impact_report as report_api
 from app.main import app
-from app.schemas.high_impact_report import (
+from app.schemas.highimpact.high_impact_report import (
     HighImpactReportResponse,
 )
 from app.services.storage import S3UploadError

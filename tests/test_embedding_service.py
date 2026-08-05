@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from app.core.config import Settings
-from app.services.embedding import (
+from app.services.chat.embedding import (
     EmbeddingConfigurationError,
     EmbeddingRequestError,
     generate_embedding,

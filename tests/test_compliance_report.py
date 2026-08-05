@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-import app.services.compliance_report as compliance_service
-from app.schemas.compliance_report import (
+import app.services.compliance.compliance_report as compliance_service
+from app.schemas.compliance.compliance_report import (
     AuditReference,
     ComplianceReportRequest,
     FairnessReference,

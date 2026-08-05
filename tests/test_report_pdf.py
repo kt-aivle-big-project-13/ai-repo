@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.report_pdf import render_html_to_pdf
+from app.services.report.report_pdf import render_html_to_pdf
 
 
 def test_render_html_to_pdf_creates_pdf(

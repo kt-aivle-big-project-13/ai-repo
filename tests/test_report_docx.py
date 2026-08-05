@@ -14,7 +14,7 @@ from docx.image.exceptions import (
 from docx.shared import Cm
 from docx.text.run import Run
 
-from app.services.report_docx import (
+from app.services.report.report_docx import (
     DocxGenerationError,
     render_report_to_docx,
 )
