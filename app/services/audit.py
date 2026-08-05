@@ -25,10 +25,10 @@ from app.schemas.audit import (
     FairnessMetricValues,
     ThresholdRequest,
 )
-from app.schemas.fairness import AttributeFairness
+from app.schemas.fairness.fairness import AttributeFairness
 from app.schemas.scoring import ThresholdConfig, ThresholdMethod
 from app.schemas.validation import IssueLevel, ValidationIssue, ValidationResult
-from app.services.fairness import compute_fairness_metrics
+from app.services.fairness.fairness import compute_fairness_metrics
 from app.services.performance import compute_performance
 from app.services.scoring import actual_defaults, load_audit_frames, score_audit_dataset
 from app.services.validation import validate_audit_inputs

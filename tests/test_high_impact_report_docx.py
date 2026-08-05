@@ -5,8 +5,8 @@ from pathlib import Path
 from docx import Document
 from docx.shared import Cm
 
-from app.schemas.high_impact_report import HighImpactReportRequest
-from app.services.high_impact_report_docx import (
+from app.schemas.highimpact.high_impact_report import HighImpactReportRequest
+from app.services.highimpact.high_impact_report_docx import (
     render_high_impact_report_to_docx,
 )
 

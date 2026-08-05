@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.report_narrative import build_narratives
+from app.schemas.report.report_narrative import build_narratives
 
 
 def test_orders_by_title_map_not_dict_order():
@@ -50,10 +50,10 @@ def test_skips_missing_or_empty_sections():
 @pytest.mark.parametrize(
     "module_name, titles_attr",
     [
-        ("app.services.bias_report", "NARRATIVE_TITLES"),
-        ("app.services.compliance_report", "NARRATIVE_TITLES"),
-        ("app.services.improvement_guide", "NARRATIVE_TITLES"),
-        ("app.services.report", "NARRATIVE_TITLES"),
+        ("app.services.bias.bias_report", "NARRATIVE_TITLES"),
+        ("app.services.compliance.compliance_report", "NARRATIVE_TITLES"),
+        ("app.services.improvement.improvement_guide", "NARRATIVE_TITLES"),
+        ("app.services.report.report", "NARRATIVE_TITLES"),
     ],
 )
 def test_every_generated_narrative_has_a_title(module_name, titles_attr):
@@ -86,7 +86,7 @@ def test_every_generated_narrative_has_a_title(module_name, titles_attr):
 def test_bias_report_does_not_add_llm_calls(monkeypatch):
     """섹션 서술 반환 때문에 LLM 호출이 늘지 않는다."""
 
-    import app.services.bias_report as service
+    import app.services.bias.bias_report as service
     from tests.test_bias_report import _audit, _request
 
     calls: list = []

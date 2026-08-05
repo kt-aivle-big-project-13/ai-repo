@@ -2,10 +2,10 @@
 
 from fastapi.testclient import TestClient
 
-import app.api.embedding as embedding_api
+import app.api.chat.embedding as embedding_api
 from app.main import app
-from app.schemas.embedding import EmbeddingGenerateResponse
-from app.services.embedding import EmbeddingConfigurationError, EmbeddingRequestError
+from app.schemas.chat.embedding import EmbeddingGenerateResponse
+from app.services.chat.embedding import EmbeddingConfigurationError, EmbeddingRequestError
 
 client = TestClient(app)
 

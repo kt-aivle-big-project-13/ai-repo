@@ -2,9 +2,9 @@
 
 from fastapi.testclient import TestClient
 
-import app.api.shap as shap_api
+import app.api.explainability.shap as shap_api
 from app.main import app
-from app.schemas.shap import (
+from app.schemas.explainability.shap import (
     ShapAnalysisResponse,
     ShapKeyMetrics,
     ShapMetricResult,

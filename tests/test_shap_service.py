@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
-import app.services.shap as shap_service
-from app.schemas.shap import (
+import app.services.explainability.shap as shap_service
+from app.schemas.explainability.shap import (
     ShapAnalysisRequest,
     ShapAnalysisResponse,
     ShapKeyMetrics,

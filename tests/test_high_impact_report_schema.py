@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.high_impact_report import HighImpactReportRequest
+from app.schemas.highimpact.high_impact_report import HighImpactReportRequest
 
 
 def _gate_answer(

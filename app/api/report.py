@@ -4,9 +4,9 @@ import logging
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.schemas.report import ReportRequest, ReportResponse
+from app.schemas.report.report import ReportRequest, ReportResponse
 from app.services.llm import LLMConfigurationError, LLMRequestError
-from app.services.report import ReportGenerationError, generate_explainability_report
+from app.services.report.report import ReportGenerationError, generate_explainability_report
 from app.services.storage import (
     S3ConfigurationError,
     S3DownloadError,

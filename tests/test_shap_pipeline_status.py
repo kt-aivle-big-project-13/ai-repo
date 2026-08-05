@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services.shap_pipeline import (
+from app.services.explainability.shap_pipeline import (
     overall_status,
     status_max,
     status_min,

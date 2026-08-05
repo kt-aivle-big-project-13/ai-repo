@@ -9,16 +9,16 @@ load_dotenv()
 
 from fastapi import FastAPI
 
-from app.api.bias_report import router as bias_report_router
-from app.api.chat import router as chat_router
-from app.api.compliance_report import router as compliance_report_router
-from app.api.embedding import router as embedding_router
-from app.api.fairness import router as fairness_router
-from app.api.improvement_guide import router as improvement_guide_router
-from app.api.fairness_internal import router as fairness_internal_router
+from app.api.bias.bias_report import router as bias_report_router
+from app.api.chat.chat import router as chat_router
+from app.api.compliance.compliance_report import router as compliance_report_router
+from app.api.chat.embedding import router as embedding_router
+from app.api.fairness.fairness import router as fairness_router
+from app.api.improvement.improvement_guide import router as improvement_guide_router
+from app.api.fairness.fairness_internal import router as fairness_internal_router
 from app.api.report import router as report_router
-from app.api.shap import router as shap_router
-from app.api.high_impact_report import (
+from app.api.explainability.shap import router as shap_router
+from app.api.highimpact.high_impact_report import (
     router as high_impact_report_router,
 )
 

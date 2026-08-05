@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-import app.services.report as report_service
-from app.schemas.report import ReportRequest
-from app.schemas.shap import (
+import app.services.report.report as report_service
+from app.schemas.report.report import ReportRequest
+from app.schemas.explainability.shap import (
     FeatureImportance,
     MetricDetail,
     SchemaValidation,

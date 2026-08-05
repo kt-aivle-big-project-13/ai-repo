@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.schemas.fairness import FairnessStatus
-from app.services.fairness import compute_attribute_fairness, compute_fairness_metrics
+from app.schemas.fairness.fairness import FairnessStatus
+from app.services.fairness.fairness import compute_attribute_fairness, compute_fairness_metrics
 
 
 def _make_case(n=4000, male_approval=0.9, female_approval=0.8, seed=0):
