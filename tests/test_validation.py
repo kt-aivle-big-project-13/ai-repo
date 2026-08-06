@@ -10,7 +10,7 @@ import pytest
 import xgboost as xgb
 
 from app.schemas.validation import IssueLevel
-from app.services.validation import validate_audit_inputs
+from app.services.validation import AGE_GROUP_COLUMN, GENDER_COLUMN, validate_audit_inputs
 
 FEATURES = ["AMT_CREDIT", "EXT_SOURCE_1", "NAME_INCOME_TYPE"]
 CATEGORICAL = ["NAME_INCOME_TYPE"]
@@ -71,7 +71,17 @@ def test_protected_attributes_excluded_from_model(model_path, audit_path):
     """보호속성이 모델 입력에 없으면 두 항목 모두 False 로 보고한다."""
     result = validate_audit_inputs(model_path, audit_path)
 
-    assert result.protected_in_model == {"성별": False, "연령": False}
+    assert result.protected_in_model == {GENDER_COLUMN: False, AGE_GROUP_COLUMN: False}
+
+
+def test_protected_attributes_dynamic_from_sensitive_features(model_path, audit_path):
+    """protected_attributes로 준 민감변수는 성별·연령대뿐 아니라 뭐든 그대로 검사한다."""
+    result = validate_audit_inputs(
+        model_path, audit_path, protected_attributes=[GENDER_COLUMN, "derived_race"]
+    )
+
+    assert result.protected_in_model == {GENDER_COLUMN: False, "derived_race": False}
+    assert "derived_race" in _items(result, IssueLevel.BLOCK)
 
 
 def test_protected_attribute_used_by_model_warns(tmp_path):
@@ -91,8 +101,8 @@ def test_protected_attribute_used_by_model_warns(tmp_path):
     result = validate_audit_inputs(model_path, audit_path)
 
     assert result.passed
-    assert result.protected_in_model["성별"] is True
-    assert "성별" in _items(result, IssueLevel.WARN)
+    assert result.protected_in_model[GENDER_COLUMN] is True
+    assert GENDER_COLUMN in _items(result, IssueLevel.WARN)
 
 
 def test_missing_model_file(tmp_path, audit_path):
