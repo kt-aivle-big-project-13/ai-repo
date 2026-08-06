@@ -204,10 +204,14 @@ def schema_validation(
     features = model.feature_names or []
     feature_types = model.feature_types or ["float"] * len(features)
     missing = [f for f in features if f not in raw.columns]
-    required = [config["target_column"], config["id_column"]]
+    required = [config["target_column"]]
     missing_required = [f for f in required if f not in raw.columns]
     duplicate_columns = raw.columns[raw.columns.duplicated()].tolist()
-    extra = [f for f in raw.columns if f not in features and f not in required]
+    # id_column(고객 식별자)은 결과표 라벨링에만 쓰이고 없으면 행 순번으로 대체하므로
+    # (아래 run_shap_pipeline) 필수 컬럼은 아니다 — FAIL 판정에는 안 넣는다. 다만 있을
+    # 때는 모델 피처도 요구 컬럼도 아닌 "낯선 컬럼"으로 잘못 보고되지 않도록 제외한다.
+    known = required + [config["id_column"]]
+    extra = [f for f in raw.columns if f not in features and f not in known]
     result = {
         "status": "PASS" if not missing and not missing_required and not duplicate_columns else "FAIL",
         "model_feature_count": len(features),
@@ -933,7 +937,12 @@ def run_shap_pipeline(
 
     X = prepare_model_frame(raw, features, feature_types)
     y = pd.to_numeric(raw[config["target_column"]], errors="raise").astype(int)
-    ids = raw[config["id_column"]]
+    # id_column이 없는 데이터셋(예: 원본에 고객 식별자를 아예 안 남긴 공개 데이터)은
+    # 행 순번을 대신 라벨로 쓴다 — 예측·SHAP 계산에는 영향 없고 결과표 표시용일 뿐이다.
+    if config["id_column"] in raw.columns:
+        ids = raw[config["id_column"]]
+    else:
+        ids = pd.Series(range(1, len(raw) + 1), index=raw.index, name="row_no")
     ctx = RunContext(
         root=root,
         output=output,
