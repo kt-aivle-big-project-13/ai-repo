@@ -128,16 +128,16 @@ def test_downloads_validation_dataset_when_given(spy):
     assert spy["audit"]["valid_path"].name == "valid_processed.csv"
 
 
-def test_infers_suffix_from_s3_key():
+def test_infers_suffix_from_s3_key(spy):
     """확장자로 파일 형식을 판단하는 코드가 뒤에 있어 임시 파일명에도 확장자를 붙인다."""
 
-    request = _request(
+    fairness_analysis.analyze_s3_request(_request(
         model_s3_key="models/credit_model.ubj",
         audit_dataset_s3_key="datasets/audit.tsv",
-    )
+    ))
 
-    assert Path(request.model_s3_key).suffix == ".ubj"
-    assert Path(request.audit_dataset_s3_key).suffix == ".tsv"
+    assert spy["audit"]["model_path"].name == "model.ubj"
+    assert spy["audit"]["audit_path"].name == "audit_dataset.tsv"
 
 
 def test_falls_back_to_default_suffix_without_extension(spy):
@@ -152,8 +152,13 @@ def test_falls_back_to_default_suffix_without_extension(spy):
     assert spy["audit"]["audit_path"].name == "audit_dataset.csv"
 
 
-def test_manual_threshold_wins_over_target_approval_rate(spy):
-    """둘 다 오면 사용자가 직접 넣은 값을 쓴다."""
+def test_maps_manual_threshold_to_threshold_field(spy):
+    """`manual_threshold` 는 `ThresholdRequest.threshold` 로, 목표 승인율은 그대로 옮긴다.
+
+    어느 쪽을 실제로 쓸지 고르는 건 이 어댑터가 아니라 `build_threshold_config` 이고,
+    그 우선순위는 `test_audit_api.py::test_build_threshold_config_precedence` 가 본다.
+    여기서는 필드가 뒤바뀌거나 누락되지 않는지만 확인한다.
+    """
 
     fairness_analysis.analyze_s3_request(_request(
         target_approval_rate=0.9,
@@ -166,7 +171,7 @@ def test_manual_threshold_wins_over_target_approval_rate(spy):
     assert threshold_request.target_approval_rate == 0.9
 
 
-def test_passes_target_approval_rate_without_manual_threshold(spy):
+def test_maps_target_approval_rate_without_manual_threshold(spy):
     fairness_analysis.analyze_s3_request(_request(target_approval_rate=0.85))
 
     threshold_request = spy["audit"]["threshold_request"]
