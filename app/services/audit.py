@@ -180,7 +180,12 @@ def run_audit(
     `ValidationBlockedError` 를 올린다. `include_report_meta=True` 면 편향 리포트용
     메타·증적(`report_meta`)을 함께 채운다.
     """
-    validation = validate_audit_inputs(model_path, audit_path, valid_path)
+    validation = validate_audit_inputs(
+        model_path,
+        audit_path,
+        valid_path,
+        protected_attributes=_parse_sensitive_features(sensitive_features),
+    )
     if not validation.passed:
         raise ValidationBlockedError(validation.issues)
 

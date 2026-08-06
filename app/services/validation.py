@@ -24,11 +24,14 @@ TARGET_COLUMN = "TARGET"
 GENDER_COLUMN = "CODE_GENDER"
 AGE_GROUP_COLUMN = "AGE_GROUP"
 
-# 보호속성이 모델 입력에 직접 들어갔는지 확인할 때 참조하는 원본 컬럼.
-# 연령은 나이 자체가 아니라 생년월일 기반 파생값으로도 들어갈 수 있어 후보를 넓게 둔다.
-PROTECTED_SOURCE_COLUMNS = {
-    "성별": [GENDER_COLUMN],
-    "연령": ["DAYS_BIRTH", "AGE", AGE_GROUP_COLUMN],
+# 보호속성이 모델 입력에 직접 들어갔는지 확인할 때 참조하는 원본 컬럼. 키는 보호속성
+# 컬럼명(감사 시작 시 고른 sensitive_features 값) 그대로라, 목록에 없는 속성(예: 인종 등
+# 새 모델에 맞춰 추가된 민감변수)은 자기 자신을 유일한 후보로 보고 그대로 검사한다.
+# 연령만 예외 — 나이 자체가 아니라 생년월일 기반 파생값으로도 모델에 들어갈 수 있어
+# 후보를 넓게 둔다.
+PROTECTED_SOURCE_COLUMNS: dict[str, list[str]] = {
+    GENDER_COLUMN: [GENDER_COLUMN],
+    AGE_GROUP_COLUMN: ["DAYS_BIRTH", "AGE", AGE_GROUP_COLUMN],
 }
 
 # 집단별 지표를 계산하기에 표본이 너무 적은 집단을 경고할 기준.
@@ -192,7 +195,9 @@ def _check_categorical_cardinality(
             )
 
 
-def _check_protected_in_model(schema: ModelSchema, collector: _IssueCollector) -> dict[str, bool]:
+def _check_protected_in_model(
+    schema: ModelSchema, protected_attributes: list[str], collector: _IssueCollector
+) -> dict[str, bool]:
     """보호속성이 모델 입력에 직접 포함됐는지 확인한다.
 
     포함되어 있어도 감사는 진행할 수 있으나, 보호속성을 직접 학습에 쓴 것이므로
@@ -201,17 +206,18 @@ def _check_protected_in_model(schema: ModelSchema, collector: _IssueCollector) -
     feature_set = set(schema.feature_names)
     flags: dict[str, bool] = {}
 
-    for name, candidates in PROTECTED_SOURCE_COLUMNS.items():
+    for attribute in protected_attributes:
+        candidates = PROTECTED_SOURCE_COLUMNS.get(attribute, [attribute])
         used = [column for column in candidates if column in feature_set]
-        flags[name] = bool(used)
+        flags[attribute] = bool(used)
         if used:
             collector.add(
                 IssueLevel.WARN,
-                name,
+                attribute,
                 f"보호속성이 모델 입력에 직접 포함됨: {used}",
             )
         else:
-            collector.add(IssueLevel.INFO, name, "보호속성이 모델 입력에서 제외됨")
+            collector.add(IssueLevel.INFO, attribute, "보호속성이 모델 입력에서 제외됨")
 
     return flags
 
@@ -260,13 +266,18 @@ def validate_audit_inputs(
     model_path: Path,
     audit_path: Path,
     valid_path: Path | None = None,
+    protected_attributes: list[str] | None = None,
 ) -> ValidationResult:
     """감사 입력 파일을 검증한다.
 
     `model_path` 와 `audit_path` 는 필수이고, `valid_path` 는 전달된 경우에만
     검증한다. BLOCK 이슈가 하나도 없으면 `passed` 가 True 이며, 이때 반환된
     모델 스키마를 이후 위험점수·공정성 지표 단계가 그대로 사용한다.
+
+    `protected_attributes` 는 이번 감사에서 실제로 고른 민감변수 목록이다(성별·연령대뿐
+    아니라 인종 등 새 모델에 맞춰 추가된 것도 포함) — 안 주면 기존 기본값(성별·연령대)만 본다.
     """
+    protected_attributes = protected_attributes or [GENDER_COLUMN, AGE_GROUP_COLUMN]
     collector = _IssueCollector()
 
     if not model_path.exists():
@@ -307,10 +318,10 @@ def validate_audit_inputs(
     if features_present:
         _check_categorical_cardinality(audit_frame, schema, collector, audit_path.name)
     _check_target(audit_frame, collector)
-    for column in (GENDER_COLUMN, AGE_GROUP_COLUMN):
+    for column in protected_attributes:
         _check_protected_column(audit_frame, column, collector)
 
-    protected_in_model = _check_protected_in_model(schema, collector)
+    protected_in_model = _check_protected_in_model(schema, protected_attributes, collector)
 
     valid_usable = False
     if valid_path is not None:
@@ -327,7 +338,7 @@ def validate_audit_inputs(
         target_column=TARGET_COLUMN,
         protected_columns=[
             column
-            for column in (GENDER_COLUMN, AGE_GROUP_COLUMN)
+            for column in protected_attributes
             if column in audit_frame.columns
         ],
     )
