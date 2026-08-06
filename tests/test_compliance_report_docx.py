@@ -5,9 +5,12 @@
 사라지는 조건부 절을 본다.
 """
 
+from collections import Counter
+
 from docx import Document
 from docx.shared import Cm
 
+from app.schemas.compliance.compliance_report import RegulationMapping
 from app.services.compliance.compliance_report import count_verdicts
 from app.services.compliance.compliance_report_docx import (
     render_compliance_report_to_docx,
@@ -59,6 +62,29 @@ def _table_text(document) -> str:
     )
 
 
+def _mapping(law_name: str, article_no: str, compliance: str) -> RegulationMapping:
+    return RegulationMapping(
+        law_name=law_name,
+        article_no=article_no,
+        content="조항 본문",
+        compliance=compliance,
+        evidence="자율점검 기반 자동 매칭",
+    )
+
+
+def _table_rows(document, headers: list[str]) -> list[list[str]]:
+    """머리글이 일치하는 표의 본문 행을 돌려준다.
+
+    문서 전체를 문자열로 합쳐 `in` 으로 보면 값이 엉뚱한 행에 들어가도 통과한다.
+    """
+
+    for table in document.tables:
+        if [cell.text for cell in table.rows[0].cells] == headers:
+            return [[cell.text for cell in row.cells] for row in table.rows[1:]]
+
+    raise AssertionError(f"머리글이 {headers} 인 표를 찾지 못함")
+
+
 def test_renders_all_sections(tmp_path):
     document = _render(tmp_path)
     text = _paragraph_text(document)
@@ -93,16 +119,30 @@ def test_renders_verdicts_and_self_check_answers(tmp_path):
 
 
 def test_counts_match_request(tmp_path):
-    """집계표 값이 요청 데이터와 일치한다. 판정을 새로 내리지 않는다."""
+    """집계표 값이 요청 데이터와 일치한다. 판정을 새로 내리지 않는다.
 
-    request = _request()
-    table_text = _table_text(_render(tmp_path, request))
+    기대값은 `count_verdicts` 가 아니라 요청에서 직접 센다 — 집계 함수와 같은 값을
+    비교하면 둘이 함께 틀려도 통과한다.
+    """
 
-    counts = count_verdicts(request)
+    # 판정마다 개수를 다르게 둔다 — 기본 픽스처는 준수·미준수가 1건씩이라 두 값이
+    # 서로 바뀌어도 표가 그대로고, PENDING 은 0 이라 어떤 값을 넣어도 맞는 것처럼 보인다.
+    request = _request(regulation_mappings=[
+        _mapping("신용정보법", "제36조의2", "NON_COMPLIANT"),
+        _mapping("AI 기본법", "제27조", "COMPLIANT"),
+        _mapping("AI 기본법", "제31조", "COMPLIANT"),
+        _mapping("개인정보보호법", "제37조의2", "PENDING"),
+    ])
+    verdicts = Counter(mapping.compliance for mapping in request.regulation_mappings)
 
-    assert "준수 (COMPLIANT)" in table_text
-    assert "미준수 (NON_COMPLIANT)" in table_text
-    assert str(counts["TOTAL"]) in table_text
+    rows = _table_rows(_render(tmp_path, request), ["판정", "조항 수"])
+
+    assert rows == [
+        ["준수 (COMPLIANT)", str(verdicts["COMPLIANT"])],
+        ["미준수 (NON_COMPLIANT)", str(verdicts["NON_COMPLIANT"])],
+        ["보류 (PENDING)", str(verdicts["PENDING"])],
+        ["합계", str(len(request.regulation_mappings))],
+    ]
 
 
 def test_repeats_table_headers_and_prevents_row_split(tmp_path):
@@ -112,10 +152,13 @@ def test_repeats_table_headers_and_prevents_row_split(tmp_path):
 
     assert document.tables, "표가 하나도 없음"
 
-    for table in document.tables:
-        header_xml = table.rows[0]._tr.xml
-        assert "tblHeader" in header_xml
-        assert "cantSplit" in header_xml
+    for index, table in enumerate(document.tables):
+        # 머리글 반복은 첫 행에만 필요하다.
+        assert "tblHeader" in table.rows[0]._tr.xml, f"{index}번째 표 머리글"
+
+        # 분할 방지는 본문 행에도 있어야 한다 — 머리글만 보면 본문 설정이 빠져도 통과한다.
+        for row_index, row in enumerate(table.rows):
+            assert "cantSplit" in row._tr.xml, f"{index}번째 표 {row_index}번째 행"
 
 
 def test_uses_a4_page_size(tmp_path):

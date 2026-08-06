@@ -5,6 +5,8 @@
 표시를 본다.
 """
 
+from collections import Counter
+
 from docx import Document
 from docx.shared import Cm
 
@@ -66,6 +68,19 @@ def _table_text(document) -> str:
     )
 
 
+def _table_rows(document, headers: list[str]) -> list[list[str]]:
+    """머리글이 일치하는 표의 본문 행을 돌려준다.
+
+    문서 전체를 문자열로 합쳐 `in` 으로 보면 값이 엉뚱한 행에 들어가도 통과한다.
+    """
+
+    for table in document.tables:
+        if [cell.text for cell in table.rows[0].cells] == headers:
+            return [[cell.text for cell in row.cells] for row in table.rows[1:]]
+
+    raise AssertionError(f"머리글이 {headers} 인 표를 찾지 못함")
+
+
 def test_renders_all_sections(tmp_path):
     document = _render(tmp_path)
     text = _paragraph_text(document)
@@ -100,14 +115,24 @@ def test_renders_actions_with_priority_labels(tmp_path):
 
 
 def test_priority_counts_match_actions(tmp_path):
-    """집계표 값이 우선순위 산정 결과와 일치한다."""
+    """집계표 값이 우선순위 산정 결과와 일치한다.
+
+    기대값은 `count_priorities` 가 아니라 과제 목록에서 직접 센다 — 집계 함수와 같은
+    값을 비교하면 둘이 함께 틀려도 통과한다.
+    """
 
     request = _request()
-    counts = count_priorities(build_actions(request))
-    table_text = _table_text(_render(tmp_path, request))
+    actions = build_actions(request)
+    priorities = Counter(action["priority"] for action in actions)
 
-    assert "합계" in table_text
-    assert str(counts["TOTAL"]) in table_text
+    rows = _table_rows(_render(tmp_path, request), ["우선순위", "과제 수"])
+
+    assert rows == [
+        ["높음", str(priorities["HIGH"])],
+        ["중간", str(priorities["MEDIUM"])],
+        ["낮음", str(priorities["LOW"])],
+        ["합계", str(len(actions))],
+    ]
 
 
 def test_renders_findings_with_threshold_and_status(tmp_path):
@@ -127,10 +152,13 @@ def test_repeats_table_headers_and_prevents_row_split(tmp_path):
 
     assert document.tables, "표가 하나도 없음"
 
-    for table in document.tables:
-        header_xml = table.rows[0]._tr.xml
-        assert "tblHeader" in header_xml
-        assert "cantSplit" in header_xml
+    for index, table in enumerate(document.tables):
+        # 머리글 반복은 첫 행에만 필요하다.
+        assert "tblHeader" in table.rows[0]._tr.xml, f"{index}번째 표 머리글"
+
+        # 분할 방지는 본문 행에도 있어야 한다 — 머리글만 보면 본문 설정이 빠져도 통과한다.
+        for row_index, row in enumerate(table.rows):
+            assert "cantSplit" in row._tr.xml, f"{index}번째 표 {row_index}번째 행"
 
 
 def test_uses_a4_page_size(tmp_path):
