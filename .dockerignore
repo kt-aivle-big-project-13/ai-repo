@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.git/
+.github/
+.claude/
+CLAUDE.md
+README.md
+api-spec.md
+
+# 로컬 테스트용 모델·감사 데이터셋 (이미지에 포함하지 않음)
+data/
+
+# 테스트·캐시 (프로덕션 이미지에 불필요)
+tests/
+.pytest_cache/
+.pytest-tmp/
+.matplotlib-cache/
+shap_test_output/
