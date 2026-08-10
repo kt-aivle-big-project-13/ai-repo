@@ -47,7 +47,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          fingerprint: "13.125.214.104 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINjnfdULV9BwwzM3TPaXclebS6Z/v2EFkVX2tucVvCEY"
+          fingerprint: "SHA256:yOMOyKo4YYmE6WFUCUs6mU0MF/xhPhJYDOCEPgwQq58"
           script: |
             cd ~/ai-repo
             git fetch origin develop
