@@ -4,6 +4,7 @@
 jinja2 템플릿 렌더링은 실제로 수행해 HTML 조립을 검증한다.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,10 @@ def _patch_common(monkeypatch, upload_sink: dict, complete_calls: list):
         "download_s3_object",
         lambda key, destination: Path(destination).write_bytes(b"x") or destination,
     )
+
+    # 재사용할 산출물이 없는 상태를 기본으로 둔다. 실제 S3를 조회하면 로컬 .env 유무에
+    # 따라 결과가 달라지므로 테스트마다 명시적으로 정한다.
+    monkeypatch.setattr(report_service, "find_latest_prefix", lambda base: None)
 
     def fake_complete(prompt, system=None, **kwargs):
         complete_calls.append(prompt)
@@ -229,3 +234,143 @@ def test_generate_report_raises_when_docx_generation_fails(
         )
 
     assert upload_sink == {}
+
+
+def _persisted_payload(top_n: int = 3) -> dict:
+    """SHAP 파이프라인이 S3 에 남기는 report_payload.json 형태."""
+
+    payload = _report().model_dump()
+    payload["global_importance_top"] = [
+        {
+            "rank": rank,
+            "feature": f"FEATURE_{rank}",
+            "mean_abs_shap": 0.5 / rank,
+            "mean_signed_shap": -0.1,
+            "contribution_ratio": 0.1,
+            "direction": "RISK_DECREASE",
+            "is_sensitive": False,
+            "sensitive_group": None,
+        }
+        for rank in range(1, top_n + 1)
+    ]
+    return payload
+
+
+def _patch_prior_artifacts(monkeypatch, prefix: str, payload: dict) -> list[str]:
+    """S3 에 남아 있는 이전 분석 산출물을 흉내 낸다. 요청된 Key 목록을 돌려준다."""
+
+    requested: list[str] = []
+    monkeypatch.setattr(report_service, "find_latest_prefix", lambda base: prefix)
+
+    def fake_download(key, destination):
+        requested.append(key)
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if key.endswith("report_payload.json"):
+            destination.write_text(json.dumps(payload), encoding="utf-8")
+        elif key.endswith("explainability_summary.json"):
+            destination.write_text(
+                json.dumps({"overall_status": "PASS"}), encoding="utf-8"
+            )
+        else:
+            destination.write_bytes(b"png-bytes")
+        return destination
+
+    monkeypatch.setattr(report_service, "download_s3_object", fake_download)
+    return requested
+
+
+def test_generate_report_reuses_prior_analysis_without_rerunning(monkeypatch):
+    upload_sink: dict = {}
+    complete_calls: list = []
+    _patch_common(monkeypatch, upload_sink, complete_calls)
+
+    requested = _patch_prior_artifacts(
+        monkeypatch, "explainability/42/shap_audit_X", _persisted_payload()
+    )
+
+    def fail_if_called(**kwargs):
+        raise AssertionError("산출물을 재사용할 수 있으면 분석을 다시 돌리면 안 된다")
+
+    monkeypatch.setattr(report_service, "analyze_local_files", fail_if_called)
+
+    result = report_service.generate_explainability_report(_request(audit_id=42))
+
+    assert result.overall_status == "PASS"
+    assert result.report_s3_key == "explainability-reports/42/shap_audit_X/report.html"
+
+    # 모델·데이터셋은 내려받지 않는다. 산출물만 읽는다.
+    assert not any("models/" in key or "datasets/" in key for key in requested)
+    assert "explainability/42/shap_audit_X/summary/report_payload.json" in requested
+
+    html = upload_sink[result.report_s3_key].decode("utf-8")
+    assert "FEATURE_1" in html
+
+
+def test_generate_report_truncates_persisted_importance_to_requested_top_n(
+    monkeypatch,
+):
+    upload_sink: dict = {}
+    complete_calls: list = []
+    _patch_common(monkeypatch, upload_sink, complete_calls)
+    _patch_prior_artifacts(
+        monkeypatch, "explainability/42/shap_audit_X", _persisted_payload(top_n=10)
+    )
+    monkeypatch.setattr(
+        report_service,
+        "analyze_local_files",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("재실행 금지")),
+    )
+
+    captured: dict = {}
+
+    def capture_render(context):
+        captured.update(context)
+        return "<html></html>"
+
+    monkeypatch.setattr(report_service, "_render_html", capture_render)
+
+    report_service.generate_explainability_report(
+        _request(audit_id=42, report_top_n=4)
+    )
+
+    importance = captured["report"].global_importance_top
+    assert [item.feature for item in importance] == [
+        "FEATURE_1",
+        "FEATURE_2",
+        "FEATURE_3",
+        "FEATURE_4",
+    ]
+    assert captured["report"].sampling["report_top_n"] == 4.0
+
+
+def test_generate_report_falls_back_when_artifacts_unavailable(monkeypatch):
+    upload_sink: dict = {}
+    complete_calls: list = []
+    _patch_common(monkeypatch, upload_sink, complete_calls)
+
+    monkeypatch.setattr(
+        report_service,
+        "find_latest_prefix",
+        lambda base: "explainability/42/shap_audit_X",
+    )
+
+    def fake_download(key, destination):
+        if key.startswith("explainability/42/"):
+            raise report_service.S3DownloadError("산출물 없음")
+        return Path(destination).write_bytes(b"x") or destination
+
+    monkeypatch.setattr(report_service, "download_s3_object", fake_download)
+
+    analyzed: list = []
+
+    def fake_analyze(request, model_path, dataset_path, output_dir):
+        analyzed.append(request.audit_id)
+        return _fake_response(True)
+
+    monkeypatch.setattr(report_service, "analyze_local_files", fake_analyze)
+
+    result = report_service.generate_explainability_report(_request(audit_id=42))
+
+    assert analyzed == [42]
+    assert result.overall_status == "WARNING"

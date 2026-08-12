@@ -75,6 +75,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
+# 산출물 report_payload.json 에 남기는 전역중요도 최대 개수. ShapAnalysisRequest 의
+# report_top_n 상한과 같은 값이라, 어떤 요청이 와도 저장본을 잘라 쓸 수 있다.
+PERSISTED_TOP_N = 200
+
+
 @dataclass
 class RunContext:
     root: Path
@@ -1047,6 +1052,11 @@ def run_shap_pipeline(
         "python_version": sys.version,
     }
 
+    # 산출물로 남기는 payload 는 요청한 top_n 이 아니라 상한까지 담는다. 리포트 생성이
+    # 이 파일을 재사용하는데(app/services/report/report.py), 분석 요청은 대시보드 카드용으로
+    # 상위 5개만 요청하는 반면 리포트는 상위 20개를 싣기 때문이다. 저장본을 넉넉히 남겨야
+    # 리포트가 파이프라인을 다시 돌리지 않고 필요한 만큼 잘라 쓸 수 있다.
+    inline_top_n = int(config.get("report_top_n", 20))
     report_payload = build_report_payload(
         global_df=global_df,
         schema=schema,
@@ -1056,13 +1066,22 @@ def run_shap_pipeline(
         permutation_summary=permutation_summary,
         additivity_summary=shap_result["additivity"],
         manifest_meta=manifest_meta,
-        config=config,
+        config={**config, "report_top_n": PERSISTED_TOP_N},
         audit_sample_size=len(shap_result["ids"]),
         dataset_row_count=len(raw),
     )
     report_payload["limitations"] = summary["limitations"]
     write_json(output / "summary" / "report_payload.json", report_payload)
-    summary["report"] = report_payload
+
+    # 응답에 인라인으로 싣는 쪽은 요청한 개수만 담아 기존 계약을 그대로 지킨다.
+    summary["report"] = {
+        **report_payload,
+        "global_importance_top": report_payload["global_importance_top"][:inline_top_n],
+        "sampling": {
+            **report_payload["sampling"],
+            "report_top_n": float(inline_top_n),
+        },
+    }
 
     generated_files = [str(p.relative_to(output)) for p in sorted(output.rglob("*")) if p.is_file()]
     manifest = {**manifest_meta, "generated_files": generated_files}

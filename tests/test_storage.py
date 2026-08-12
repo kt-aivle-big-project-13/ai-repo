@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from botocore.exceptions import ClientError
 
 import app.services.storage as storage
 from app.services.storage import S3ConfigurationError, S3UploadError
@@ -285,3 +286,58 @@ def test_upload_raises_on_client_error(monkeypatch, tmp_path):
 
     with pytest.raises(S3UploadError):
         storage.upload_s3_object(source, "reports/report.csv")
+
+
+def test_find_latest_prefix_returns_most_recent_run(monkeypatch):
+    monkeypatch.setenv("AWS_S3_BUCKET", "audit-bucket")
+
+    captured: dict = {}
+
+    class FakeS3Client:
+        def list_objects_v2(self, **kwargs):
+            captured.update(kwargs)
+            return {
+                "CommonPrefixes": [
+                    {"Prefix": "explainability/42/shap_audit_20260810T010000Z/"},
+                    {"Prefix": "explainability/42/shap_audit_20260812T090000Z/"},
+                    {"Prefix": "explainability/42/shap_audit_20260811T120000Z/"},
+                ]
+            }
+
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: FakeS3Client())
+
+    result = storage.find_latest_prefix("explainability/42")
+
+    assert result == "explainability/42/shap_audit_20260812T090000Z"
+    assert captured["Prefix"] == "explainability/42/"
+    assert captured["Delimiter"] == "/"
+
+
+def test_find_latest_prefix_returns_none_when_no_run_exists(monkeypatch):
+    monkeypatch.setenv("AWS_S3_BUCKET", "audit-bucket")
+
+    class FakeS3Client:
+        def list_objects_v2(self, **kwargs):
+            return {}
+
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: FakeS3Client())
+
+    assert storage.find_latest_prefix("explainability/42") is None
+
+
+def test_find_latest_prefix_returns_none_when_bucket_is_missing(monkeypatch):
+    monkeypatch.delenv("AWS_S3_BUCKET", raising=False)
+
+    assert storage.find_latest_prefix("explainability/42") is None
+
+
+def test_find_latest_prefix_returns_none_on_client_error(monkeypatch):
+    monkeypatch.setenv("AWS_S3_BUCKET", "audit-bucket")
+
+    class FakeS3Client:
+        def list_objects_v2(self, **kwargs):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "ListObjectsV2")
+
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: FakeS3Client())
+
+    assert storage.find_latest_prefix("explainability/42") is None

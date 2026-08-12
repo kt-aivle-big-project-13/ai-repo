@@ -6,6 +6,8 @@ HTML 을 S3 에 올리고 그 Key 를 돌려준다.
 """
 
 import base64
+import json
+import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,10 +27,22 @@ from app.services.report.report_docx import (
 )
 from app.services.report.report_pdf import PdfGenerationError, render_html_to_pdf
 from app.services.explainability.shap import analyze_local_files
-from app.services.storage import download_s3_object, upload_s3_object
+from app.services.storage import (
+    S3ConfigurationError,
+    S3DownloadError,
+    download_s3_object,
+    find_latest_prefix,
+    upload_s3_object,
+)
+
+logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 TEMPLATE_NAME = "explainability_report.html.j2"
+
+# SHAP 분석이 산출물을 올리는 위치. `app/services/explainability/shap.py` 가 쓰는
+# 규칙과 같아야 한다.
+ANALYSIS_PREFIX_ROOT = "explainability"
 
 # 섹션 서술을 챗봇 근거로 넘길 때 쓰는 목차 제목. 리포트 목차는 이 저장소가 소유하는
 # 정보라, 키만이 아니라 제목까지 함께 반환한다.
@@ -113,8 +127,88 @@ def _render_html(context: dict[str, Any]) -> str:
     return template.render(**context)
 
 
-def generate_explainability_report(request: ReportRequest) -> ReportResponse:
-    """S3 파일로 SHAP 분석을 실행하고 HTML 리포트를 만들어 S3 에 올린다."""
+def _reuse_prior_analysis(
+    request: ReportRequest,
+    output_dir: Path,
+) -> tuple[ShapReport, str] | None:
+    """직전 SHAP 분석이 S3 에 남긴 산출물을 내려받아 재사용한다.
+
+    `/internal/v1/shap/analyze` 가 `include_report=True` 로 호출되면 실행 산출물
+    전체가 `explainability/{audit_id}/{run_id}` 에 올라간다. 리포트에 필요한
+    report payload 와 figure 가 그 안에 이미 있으므로, 같은 입력으로 파이프라인을
+    다시 돌릴 이유가 없다.
+
+    재사용할 산출물을 못 찾거나 내려받지 못하면 None 을 돌려준다 — 호출부가 직접
+    분석하는 폴백 경로로 넘어가 리포트 생성 자체는 실패하지 않게 하기 위함이다.
+    """
+
+    prefix = request.analysis_prefix or find_latest_prefix(
+        f"{ANALYSIS_PREFIX_ROOT}/{request.audit_id}"
+    )
+    if not prefix:
+        return None
+
+    summary_dir = output_dir / "summary"
+    try:
+        payload_path = download_s3_object(
+            f"{prefix}/summary/report_payload.json",
+            summary_dir / "report_payload.json",
+        )
+        summary_path = download_s3_object(
+            f"{prefix}/summary/explainability_summary.json",
+            summary_dir / "explainability_summary.json",
+        )
+    except (S3DownloadError, S3ConfigurationError) as exception:
+        logger.warning(
+            "SHAP 산출물 재사용 실패, 분석을 직접 실행합니다: audit_id=%s, prefix=%s (%s)",
+            request.audit_id,
+            prefix,
+            exception,
+        )
+        return None
+
+    try:
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        overall_status = json.loads(summary_path.read_text(encoding="utf-8"))[
+            "overall_status"
+        ]
+        # 저장본은 상한까지 담겨 있으므로 이 리포트가 실을 만큼만 잘라 쓴다.
+        payload["global_importance_top"] = payload["global_importance_top"][
+            : request.report_top_n
+        ]
+        payload["sampling"] = {
+            **payload["sampling"],
+            "report_top_n": float(len(payload["global_importance_top"])),
+        }
+        report = ShapReport.model_validate(payload)
+    except (KeyError, TypeError, ValueError) as exception:
+        logger.warning(
+            "SHAP 산출물 형식이 예상과 달라 분석을 직접 실행합니다: audit_id=%s, prefix=%s (%s)",
+            request.audit_id,
+            prefix,
+            exception,
+        )
+        return None
+
+    # figure 는 없으면 해당 그림만 빠질 뿐이라 개별 실패를 무시한다.
+    for name in FIGURE_TITLES:
+        try:
+            download_s3_object(
+                f"{prefix}/figures/{name}",
+                output_dir / "figures" / name,
+            )
+        except (S3DownloadError, S3ConfigurationError):
+            continue
+
+    return report, overall_status
+
+
+def _analyze_from_source(
+    request: ReportRequest,
+    temporary_path: Path,
+    output_dir: Path,
+) -> tuple[ShapReport, str]:
+    """재사용할 산출물이 없을 때 모델·데이터셋을 내려받아 직접 분석한다."""
 
     shap_request = ShapAnalysisRequest(
         audit_id=request.audit_id,
@@ -126,49 +220,59 @@ def generate_explainability_report(request: ReportRequest) -> ReportResponse:
         report_top_n=request.report_top_n,
     )
 
+    model_suffix = Path(request.model_s3_key).suffix or ".json"
+    dataset_suffix = Path(request.audit_dataset_s3_key).suffix or ".csv"
+    model_path = temporary_path / f"model{model_suffix}"
+    dataset_path = temporary_path / f"audit_dataset{dataset_suffix}"
+
+    download_s3_object(request.model_s3_key, model_path)
+    download_s3_object(request.audit_dataset_s3_key, dataset_path)
+
+    analysis = analyze_local_files(
+        request=shap_request,
+        model_path=model_path,
+        dataset_path=dataset_path,
+        output_dir=output_dir,
+    )
+
+    if analysis.report is None:
+        raise ReportGenerationError(
+            "SHAP 분석에서 리포트 payload 를 얻지 못했습니다."
+        )
+
+    return analysis.report, analysis.overall_status
+
+
+def generate_explainability_report(request: ReportRequest) -> ReportResponse:
+    """SHAP 분석 결과로 HTML 리포트를 만들어 S3 에 올린다.
+
+    직전 분석이 S3 에 남긴 산출물을 재사용하고, 없을 때만 분석을 직접 실행한다.
+    """
+
     with tempfile.TemporaryDirectory(
         prefix=f"report_{request.audit_id}_"
     ) as temporary_directory:
         temporary_path = Path(temporary_directory)
-
-        model_suffix = Path(request.model_s3_key).suffix or ".json"
-        dataset_suffix = Path(request.audit_dataset_s3_key).suffix or ".csv"
-        model_path = temporary_path / f"model{model_suffix}"
-        dataset_path = temporary_path / f"audit_dataset{dataset_suffix}"
         output_dir = temporary_path / "outputs"
 
-        download_s3_object(request.model_s3_key, model_path)
-        download_s3_object(request.audit_dataset_s3_key, dataset_path)
-
-        analysis = analyze_local_files(
-            request=shap_request,
-            model_path=model_path,
-            dataset_path=dataset_path,
-            output_dir=output_dir,
-        )
-
-        report = analysis.report
-        if report is None:
-            raise ReportGenerationError(
-                "SHAP 분석에서 리포트 payload 를 얻지 못했습니다."
+        reused = _reuse_prior_analysis(request, output_dir)
+        if reused is not None:
+            report, overall_status = reused
+        else:
+            report, overall_status = _analyze_from_source(
+                request, temporary_path, output_dir
             )
 
-        narratives = _build_narratives(report, analysis.overall_status, complete)
+        narratives = _build_narratives(report, overall_status, complete)
         figures = _load_figures(output_dir)
         generated_at = datetime.now(timezone.utc).isoformat()
 
         meta = {
             "audit_id": request.audit_id,
             "generated_at": generated_at,
-            "overall_status": analysis.overall_status,
-            "model_file": report.manifest.get(
-                "model_file",
-                model_path.name,
-            ),
-            "data_file": report.manifest.get(
-                "data_file",
-                dataset_path.name,
-            ),
+            "overall_status": overall_status,
+            "model_file": report.manifest.get("model_file", ""),
+            "data_file": report.manifest.get("data_file", ""),
         }
 
         html = _render_html(
@@ -224,7 +328,7 @@ def generate_explainability_report(request: ReportRequest) -> ReportResponse:
             pdf_report_s3_key=pdf_report_key,
             word_report_s3_key=word_report_key,
             format="html",
-            overall_status=analysis.overall_status,
+            overall_status=overall_status,
             generated_at=generated_at,
             narratives=build_narratives(narratives, NARRATIVE_TITLES),
         )

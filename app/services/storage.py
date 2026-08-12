@@ -112,6 +112,43 @@ def download_s3_object(
     return destination
 
 
+def find_latest_prefix(base_prefix: str) -> str | None:
+    """`base_prefix` 바로 아래 하위 프리픽스 중 사전순으로 가장 큰 것을 돌려준다.
+
+    산출물 프리픽스가 `explainability/{audit_id}/{run_id}` 형태이고 run_id 가
+    `..._%Y%m%dT%H%M%SZ` 라 사전순 최대가 곧 최신 실행이다. 감사를 재시도하면
+    같은 audit_id 아래에 실행이 여러 개 쌓이므로 마지막 것을 골라야 한다.
+
+    하위 프리픽스가 없거나 조회에 실패하면 None 을 돌려준다 — 호출부가 산출물
+    재사용을 포기하고 직접 계산하는 경로로 넘어갈 수 있게 하기 위함이다.
+    """
+
+    bucket = os.getenv("AWS_S3_BUCKET")
+    if not bucket:
+        return None
+
+    normalized = base_prefix.strip().strip("/")
+    if not normalized:
+        return None
+
+    try:
+        response = _create_s3_client().list_objects_v2(
+            Bucket=bucket,
+            Prefix=f"{normalized}/",
+            Delimiter="/",
+        )
+    except (BotoCoreError, ClientError, S3ConfigurationError):
+        return None
+
+    prefixes = [
+        entry["Prefix"].rstrip("/")
+        for entry in response.get("CommonPrefixes", [])
+        if entry.get("Prefix")
+    ]
+
+    return max(prefixes) if prefixes else None
+
+
 def upload_s3_object(source: Path, s3_key: str) -> str:
     """로컬 파일을 지정한 S3 Key로 업로드하고 Key를 돌려준다."""
 
