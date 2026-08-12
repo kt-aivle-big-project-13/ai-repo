@@ -20,3 +20,23 @@ services:
     # 8GiB 인스턴스에서 OS·dockerd 몫을 남긴 값이다(관측된 피크는 약 1.4GiB).
     mem_limit: 6g
     restart: unless-stopped
+
+  # 인스턴스 자원 메트릭 수집. AI 서버가 메모리 고갈로 8회 강제 종료되는 동안 아무도
+  # 인지하지 못했고, 원인 파악도 dmesg와 docker stats를 손으로 찍어 추정해야 했다.
+  # 백엔드 인스턴스와 같은 구성이라 모니터링 인스턴스가 같은 방식으로 스크랩한다.
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: fin-audit-ai-node-exporter
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/host"
+    # 모니터링 전용 인스턴스에서 원격 스크랩할 수 있도록 공개한다.
+    # 접근 제어는 보안그룹(모니터링 SG만 허용)으로 한다.
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host:ro
+    restart: unless-stopped
