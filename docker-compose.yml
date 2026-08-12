@@ -5,6 +5,18 @@ services:
       dockerfile: Dockerfile
     container_name: fin-audit-ai
     env_file: .env
+    environment:
+      # glibc는 스레드마다 별도 arena를 만들고 해제된 메모리를 OS에 돌려주지 않고 쥐고 있는다.
+      # FastAPI가 sync 라우터를 스레드풀에서 돌리는 데다 pandas·numpy가 큰 블록을 반복
+      # 할당하는 워크로드라, 요청이 끝나도 상주 메모리가 기준선(158MiB)의 8배인 약 1.3GiB로
+      # 남았다. arena 수를 제한해 그 파편화를 줄인다.
+      MALLOC_ARENA_MAX: "2"
     ports:
       - "8000:8000"
+    # 한도가 없으면 메모리가 부족할 때 커널 OOM Killer가 호스트 전체에서 대상을 고른다.
+    # 실제로 t3.small에서 8번 이렇게 죽었는데, 컨테이너 cgroup 한도를 넘긴 게 아니라
+    # 호스트가 고갈된 것이라 docker inspect의 OOMKilled가 false로 나와 원인 추적에
+    # dmesg가 필요했다. 한도를 걸면 컨테이너만 죽으면서 OOMKilled로 바로 잡힌다.
+    # 8GiB 인스턴스에서 OS·dockerd 몫을 남긴 값이다(관측된 피크는 약 1.4GiB).
+    mem_limit: 6g
     restart: unless-stopped
