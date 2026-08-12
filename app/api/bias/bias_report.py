@@ -2,8 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.concurrency import report_slot
 from app.schemas.bias.bias_report import BiasReportRequest, BiasReportResponse
 from app.services.audit import ValidationBlockedError
 from app.services.bias.bias_report import generate_bias_report
@@ -26,6 +27,7 @@ router = APIRouter(
 
 @router.post(
     "/bias",
+    dependencies=[Depends(report_slot)],
     response_model=BiasReportResponse,
     responses={
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
@@ -38,7 +40,7 @@ router = APIRouter(
             "description": "S3 다운로드·업로드 또는 LLM 호출 실패",
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "S3 또는 LLM 환경 설정 누락",
+            "description": "S3 또는 LLM 환경 설정 누락, 또는 동시 실행 한도 초과",
         },
     },
 )

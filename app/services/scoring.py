@@ -24,14 +24,13 @@ from app.schemas.scoring import (
     ThresholdMethod,
 )
 from app.schemas.validation import ModelSchema
+from app.services.model_loading import load_booster as _load_booster_with_fixed_threads
 from app.services.validation import TARGET_COLUMN
 
 
 def load_booster(model_path: Path) -> xgb.Booster:
     """감사 대상 모델을 로드한다."""
-    booster = xgb.Booster()
-    booster.load_model(model_path)
-    return booster
+    return _load_booster_with_fixed_threads(model_path)
 
 
 def _iteration_range(schema: ModelSchema) -> tuple[int, int]:

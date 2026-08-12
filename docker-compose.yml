@@ -11,6 +11,13 @@ services:
       # 할당하는 워크로드라, 요청이 끝나도 상주 메모리가 기준선(158MiB)의 8배인 약 1.3GiB로
       # 남았다. arena 수를 제한해 그 파편화를 줄인다.
       MALLOC_ARENA_MAX: "2"
+      # numpy·scipy가 쓰는 BLAS의 스레드 수. 지정하지 않으면 라이브러리마다 가용 코어를
+      # 전부 잡으려 하고, 그런 요청이 동시에 여러 개면 2코어에 스레드가 수십 개 올라가
+      # 경합만 커진다. XGBoost 쪽은 코드에서 nthread로 따로 고정한다
+      # (app/services/model_loading.py).
+      OMP_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     ports:
       - "8000:8000"
     # 한도가 없으면 메모리가 부족할 때 커널 OOM Killer가 호스트 전체에서 대상을 고른다.

@@ -8,8 +8,9 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from app.core.concurrency import analysis_slot
 from app.schemas.audit import AuditErrorResponse, AuditRunResponse, ThresholdRequest
 from app.services.audit import ValidationBlockedError, run_audit
 
@@ -32,6 +33,7 @@ def _save_upload(upload: UploadFile, directory: Path, filename: str) -> Path:
 
 @router.post(
     "/audits",
+    dependencies=[Depends(analysis_slot)],
     response_model=AuditRunResponse,
     responses={HTTP_422_VALIDATION_BLOCKED: {"model": AuditErrorResponse}},
 )
