@@ -38,3 +38,19 @@ app.include_router(shap_router)
 @app.get("/")
 def read_root():
     return {"message": "Hello World"}
+
+
+@app.get("/health")
+async def health_check():
+    """ALB 타깃 그룹 헬스체크용 엔드포인트.
+
+    프로세스가 요청을 받을 수 있는 상태인지만 확인한다. S3·LLM 같은 외부 의존성은
+    검사하지 않는다 — 그쪽 장애로 인스턴스가 unhealthy 로 빠지면 ASG 가 멀쩡한
+    인스턴스를 계속 교체하게 되고, 정작 교체된 인스턴스도 같은 이유로 실패해
+    복구되지 않기 때문이다.
+
+    무거운 분석 요청이 스레드풀을 점유해도 응답할 수 있도록 async 로 둔다. sync
+    라우터는 스레드풀에서 실행되는데, 그 풀이 분석으로 가득 차면 헬스체크가 밀려
+    타임아웃 나고 멀쩡한 인스턴스가 교체될 수 있다.
+    """
+    return {"status": "ok"}
