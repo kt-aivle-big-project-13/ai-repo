@@ -277,7 +277,9 @@ def _patch(monkeypatch, endpoint: Endpoint, handler) -> None:
 
 
 def _patch_raising(monkeypatch, endpoint: Endpoint, exception: Exception) -> None:
-    def fail(request):
+    # 라우터마다 서비스 호출 시 넘기는 키워드 인자가 달라(예: 공정성 분석은
+    # include_report_meta·persist_result) 스텁은 전부 받아 넘긴다.
+    def fail(request, **kwargs):
         raise exception
 
     _patch(monkeypatch, endpoint, fail)
@@ -287,7 +289,7 @@ def _patch_raising(monkeypatch, endpoint: Endpoint, exception: Exception) -> Non
 def test_returns_service_response_as_is(monkeypatch, endpoint: Endpoint):
     """백엔드가 그대로 저장하는 응답이라 라우터가 필드를 바꾸면 안 된다."""
 
-    _patch(monkeypatch, endpoint, lambda request: endpoint.response)
+    _patch(monkeypatch, endpoint, lambda request, **kwargs: endpoint.response)
 
     response = client.post(endpoint.path, json=endpoint.payload)
 
@@ -301,7 +303,7 @@ def test_passes_request_body_to_service(monkeypatch, endpoint: Endpoint):
 
     received = {}
 
-    def capture(request):
+    def capture(request, **kwargs):
         received["audit_id"] = request.audit_id
         return endpoint.response
 
