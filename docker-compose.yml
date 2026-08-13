@@ -23,7 +23,7 @@ services:
 
   # 인스턴스 자원 메트릭 수집. AI 서버가 메모리 고갈로 8회 강제 종료되는 동안 아무도
   # 인지하지 못했고, 원인 파악도 dmesg와 docker stats를 손으로 찍어 추정해야 했다.
-  # 백엔드 인스턴스와 같은 구성이라 모니터링 인스턴스가 같은 방식으로 스크랩한다.
+  # 모니터링 인스턴스가 백엔드와 같은 방식(EC2 서비스 디스커버리, 9100)으로 스크랩한다.
   node-exporter:
     image: prom/node-exporter:v1.8.2
     container_name: fin-audit-ai-node-exporter
@@ -31,12 +31,18 @@ services:
       - "--path.procfs=/host/proc"
       - "--path.sysfs=/host/sys"
       - "--path.rootfs=/host"
-    # 모니터링 전용 인스턴스에서 원격 스크랩할 수 있도록 공개한다.
-    # 접근 제어는 보안그룹(모니터링 SG만 허용)으로 한다.
-    ports:
-      - "9100:9100"
+    # 호스트 네임스페이스를 그대로 쓴다(node-exporter 권장 구성).
+    #   network_mode: 컨테이너 네트워크가 아닌 호스트의 인터페이스·소켓 통계를 읽는다.
+    #     9100이 호스트에 직접 열리므로 별도 포트 매핑이 필요 없다. 노출 범위는
+    #     포트 매핑을 쓸 때와 같고, 접근 제어는 보안그룹(모니터링 SG만 허용)으로 한다.
+    #   pid: 프로세스 메트릭이 컨테이너 안이 아니라 호스트 기준으로 잡힌다.
+    #     OOM으로 죽는 게 어느 프로세스인지 보려면 호스트 기준이어야 한다.
+    #   rslave: 컨테이너가 뜬 뒤 호스트에 생긴 마운트도 따라 보인다. 없으면 그 시점
+    #     스냅샷에 머물러 파일시스템 메트릭이 실제와 어긋난다.
+    network_mode: host
+    pid: host
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
-      - /:/host:ro
+      - /:/host:ro,rslave
     restart: unless-stopped
