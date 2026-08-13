@@ -106,6 +106,10 @@ def test_generate_bias_report_renders_and_uploads(monkeypatch):
 
     monkeypatch.setattr(bias_report_service, "analyze_fairness_s3", fake_analyze)
 
+    # 재사용할 산출물이 없는 상태를 기본으로 둔다. 실제 S3를 조회하면 로컬 .env 유무에
+    # 따라 결과가 달라지므로 테스트마다 명시적으로 정한다.
+    monkeypatch.setattr(bias_report_service, "find_latest_prefix", lambda base: None)
+
     def fake_complete(prompt, system=None, **kwargs):
         complete_calls.append(prompt)
         return "생성된 서술 문단"
@@ -219,3 +223,180 @@ def test_build_report_meta_maps_source_and_hashes(tmp_path):
     assert meta.schema_passed is True
     assert meta.xgboost_version
     assert meta.limitations
+
+
+def _patch_render_and_upload(monkeypatch, upload_sink: dict) -> None:
+    monkeypatch.setattr(
+        bias_report_service, "complete", lambda prompt, system=None, **kw: "서술"
+    )
+
+    def fake_upload(source, key):
+        upload_sink[key] = Path(source).read_bytes()
+        return key
+
+    monkeypatch.setattr(bias_report_service, "upload_s3_object", fake_upload)
+
+    def fake_render_pdf(html_path, pdf_path):
+        Path(pdf_path).write_bytes(b"%PDF-test")
+        return Path(pdf_path).resolve()
+
+    monkeypatch.setattr(bias_report_service, "render_html_to_pdf", fake_render_pdf)
+
+
+def test_reuses_prior_audit_result_without_rerunning(monkeypatch):
+    """직전 분석이 남긴 결과가 있으면 감사를 다시 실행하지 않는다."""
+
+    upload_sink: dict = {}
+    _patch_render_and_upload(monkeypatch, upload_sink)
+
+    monkeypatch.setattr(
+        bias_report_service,
+        "find_latest_prefix",
+        lambda base: f"{base}/fairness_20260812T090000Z_42",
+    )
+
+    requested: list[str] = []
+
+    def fake_download(key, destination):
+        requested.append(key)
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(_audit().model_dump_json(), encoding="utf-8")
+        return destination
+
+    monkeypatch.setattr(bias_report_service, "download_s3_object", fake_download)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("결과를 재사용할 수 있으면 감사를 다시 돌리면 안 된다")
+
+    monkeypatch.setattr(bias_report_service, "analyze_fairness_s3", fail_if_called)
+
+    result = bias_report_service.generate_bias_report(_request(audit_id=42))
+
+    assert result.audit_id == 42
+    assert requested == [
+        "fairness/42/fairness_20260812T090000Z_42/audit_result.json"
+    ]
+    assert "서술" in upload_sink[result.report_s3_key].decode("utf-8")
+
+
+def test_prefers_explicit_analysis_prefix_over_lookup(monkeypatch):
+    upload_sink: dict = {}
+    _patch_render_and_upload(monkeypatch, upload_sink)
+
+    def fail_lookup(base):
+        raise AssertionError("프리픽스를 직접 받으면 탐색하지 않는다")
+
+    monkeypatch.setattr(bias_report_service, "find_latest_prefix", fail_lookup)
+
+    requested: list[str] = []
+
+    def fake_download(key, destination):
+        requested.append(key)
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(_audit().model_dump_json(), encoding="utf-8")
+        return destination
+
+    monkeypatch.setattr(bias_report_service, "download_s3_object", fake_download)
+    monkeypatch.setattr(
+        bias_report_service,
+        "analyze_fairness_s3",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("재실행 금지")),
+    )
+
+    bias_report_service.generate_bias_report(
+        _request(audit_id=42, analysis_prefix="fairness/42/chosen-run")
+    )
+
+    assert requested == ["fairness/42/chosen-run/audit_result.json"]
+
+
+def test_falls_back_to_running_audit_when_result_unavailable(monkeypatch):
+    """산출물을 못 읽으면 감사를 직접 실행해 리포트 생성은 계속된다."""
+
+    upload_sink: dict = {}
+    _patch_render_and_upload(monkeypatch, upload_sink)
+
+    monkeypatch.setattr(
+        bias_report_service, "find_latest_prefix", lambda base: f"{base}/missing-run"
+    )
+
+    def fake_download(key, destination):
+        raise bias_report_service.S3DownloadError("산출물 없음")
+
+    monkeypatch.setattr(bias_report_service, "download_s3_object", fake_download)
+
+    analyzed: dict = {}
+
+    def fake_analyze(fairness_request, include_report_meta=False):
+        analyzed["audit_id"] = fairness_request.audit_id
+        analyzed["include_report_meta"] = include_report_meta
+        return _audit()
+
+    monkeypatch.setattr(bias_report_service, "analyze_fairness_s3", fake_analyze)
+
+    result = bias_report_service.generate_bias_report(
+        _request(audit_id=42, analysis_prefix=None)
+    )
+
+    assert analyzed == {"audit_id": 42, "include_report_meta": True}
+    assert result.audit_id == 42
+
+
+def test_fallback_does_not_pass_report_only_field_to_analysis(monkeypatch):
+    """analysis_prefix 는 리포트 요청 전용이라 분석 요청 스키마로 넘기면 안 된다."""
+
+    upload_sink: dict = {}
+    _patch_render_and_upload(monkeypatch, upload_sink)
+    monkeypatch.setattr(
+        bias_report_service, "find_latest_prefix", lambda base: None
+    )
+    monkeypatch.setattr(
+        bias_report_service,
+        "analyze_fairness_s3",
+        lambda fairness_request, include_report_meta=False: _audit(),
+    )
+
+    result = bias_report_service.generate_bias_report(
+        _request(audit_id=42, analysis_prefix="fairness/42/some-run")
+    )
+
+    assert result.audit_id == 42
+
+
+def test_rejects_analysis_prefix_from_other_audit(monkeypatch):
+    """다른 감사의 결과를 가리키는 프리픽스를 받아 읽으면 안 된다."""
+
+    upload_sink: dict = {}
+    _patch_render_and_upload(monkeypatch, upload_sink)
+
+    def fail_lookup(base):
+        raise AssertionError("프리픽스를 직접 받으면 탐색하지 않는다")
+
+    monkeypatch.setattr(bias_report_service, "find_latest_prefix", fail_lookup)
+
+    requested: list[str] = []
+
+    def fake_download(key, destination):
+        requested.append(key)
+        return Path(destination)
+
+    monkeypatch.setattr(bias_report_service, "download_s3_object", fake_download)
+
+    analyzed: list = []
+
+    def fake_analyze(fairness_request, include_report_meta=False):
+        analyzed.append(fairness_request.audit_id)
+        return _audit()
+
+    monkeypatch.setattr(bias_report_service, "analyze_fairness_s3", fake_analyze)
+
+    result = bias_report_service.generate_bias_report(
+        _request(audit_id=42, analysis_prefix="fairness/43/fairness_run")
+    )
+
+    # 남의 감사 결과는 읽지 않고 직접 실행으로 넘어간다.
+    assert requested == []
+    assert analyzed == [42]
+    assert result.audit_id == 42

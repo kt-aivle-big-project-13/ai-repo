@@ -23,6 +23,10 @@ class BiasReportRequest(BaseModel):
     manual_threshold: float | None = Field(default=None, gt=0.0, le=1.0)
     sensitive_features: list[str] = Field(min_length=1)
 
+    # 재사용할 감사 결과 프리픽스(`fairness/{audit_id}/{run_id}`). 지정하지 않으면
+    # audit_id 아래에서 가장 최근 실행을 찾고, 그것도 없으면 감사를 직접 실행한다.
+    analysis_prefix: str | None = None
+
 
 class BiasReportResponse(BaseModel):
     """생성된 편향진단 리포트 산출물 참조 (HTML·PDF·Word)."""

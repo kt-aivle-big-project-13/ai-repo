@@ -44,10 +44,19 @@ router = APIRouter(
     },
 )
 def analyze_fairness(request: FairnessAnalyzeRequest) -> AuditRunResponse:
-    """S3에 저장된 모델·데이터셋으로 공정성 감사를 실행한다."""
+    """S3에 저장된 모델·데이터셋으로 공정성 감사를 실행한다.
+
+    결과를 S3에 남겨 편향 리포트가 같은 계산을 다시 하지 않게 한다. 리포트가
+    쓰려면 메타·증적까지 있어야 하므로 함께 채운다 — 응답에 필드가 하나 더
+    실릴 뿐 기존 필드는 그대로다.
+    """
 
     try:
-        return analyze_s3_request(request)
+        return analyze_s3_request(
+            request,
+            include_report_meta=True,
+            persist_result=True,
+        )
     except ValidationBlockedError as exception:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

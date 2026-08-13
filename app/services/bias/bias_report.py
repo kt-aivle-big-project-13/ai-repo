@@ -8,6 +8,7 @@ SHAP 리포트와 달리 분석 응답에 데이터가 이미 다 들어 있어 
 필요 없고, figure 만 리포트 단계에서 새로 생성한다.
 """
 
+import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,10 +25,21 @@ from app.services.bias import bias_report_prompts
 from app.services.bias.bias_figures import generate_bias_figures
 from app.services.bias.bias_report_docx import render_bias_report_to_docx
 from app.services.bias.bias_report_prompts import SYSTEM
+from app.services.fairness.fairness_analysis import ARTIFACT_PREFIX_ROOT as ANALYSIS_PREFIX_ROOT
+from app.services.fairness.fairness_analysis import RESULT_FILE_NAME
 from app.services.fairness.fairness_analysis import analyze_s3_request as analyze_fairness_s3
 from app.services.llm import complete
 from app.services.report.report_pdf import render_html_to_pdf
-from app.services.storage import upload_s3_object
+from app.services.storage import (
+    S3ConfigurationError,
+    S3DownloadError,
+    download_s3_object,
+    find_latest_prefix,
+    is_run_prefix_of,
+    upload_s3_object,
+)
+
+logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 TEMPLATE_NAME = "bias_report.html.j2"
@@ -77,13 +89,85 @@ def _render_html(context: dict[str, Any]) -> str:
     return template.render(**context)
 
 
-def generate_bias_report(request: BiasReportRequest) -> BiasReportResponse:
-    """S3 파일로 공정성 감사를 실행하고 편향진단 HTML 리포트를 만들어 S3 에 올린다."""
+def _resolve_analysis_prefix(request: BiasReportRequest) -> str | None:
+    """재사용할 감사 결과 프리픽스를 정한다.
 
-    audit = analyze_fairness_s3(
-        FairnessAnalyzeRequest(**request.model_dump()),
+    요청으로 받은 값은 그대로 믿지 않고 이 감사의 결과 범위인지 확인한다. 다른
+    감사(`fairness/43/...`)를 가리키는 값을 받아 읽으면 남의 감사 결과가 이
+    리포트에 실리기 때문이다. 범위를 벗어나면 None 을 돌려줘 감사를 직접
+    실행하는 경로로 넘긴다. 설명가능성 리포트와 같은 방식이다
+    (`app/services/report/report.py`).
+    """
+
+    base = f"{ANALYSIS_PREFIX_ROOT}/{request.audit_id}"
+
+    if not request.analysis_prefix:
+        return find_latest_prefix(base)
+
+    if not is_run_prefix_of(request.analysis_prefix, base):
+        logger.warning(
+            "요청한 결과 프리픽스가 이 감사의 범위를 벗어나 무시합니다: "
+            "audit_id=%s, prefix=%s",
+            request.audit_id,
+            request.analysis_prefix,
+        )
+        return None
+
+    return request.analysis_prefix
+
+
+def _reuse_prior_audit(request: BiasReportRequest) -> AuditRunResponse | None:
+    """직전 공정성 분석이 S3 에 남긴 결과를 재사용한다.
+
+    `/internal/v1/fairness/analyze` 가 감사 결과를 통째로 남기므로, 같은 입력으로
+    감사를 다시 실행할 이유가 없다.
+
+    재사용할 결과를 못 찾거나 읽지 못하면 None 을 돌려준다 — 호출부가 직접 감사를
+    실행하는 경로로 넘어가 리포트 생성 자체는 실패하지 않게 하기 위함이다.
+    """
+
+    prefix = _resolve_analysis_prefix(request)
+    if not prefix:
+        return None
+
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix=f"bias_reuse_{request.audit_id}_"
+        ) as tmp:
+            path = download_s3_object(
+                f"{prefix}/{RESULT_FILE_NAME}",
+                Path(tmp) / RESULT_FILE_NAME,
+            )
+            return AuditRunResponse.model_validate_json(
+                path.read_text(encoding="utf-8")
+            )
+    except (S3DownloadError, S3ConfigurationError, OSError, ValueError) as exception:
+        logger.warning(
+            "공정성 감사 결과 재사용 실패, 감사를 직접 실행합니다: audit_id=%s, prefix=%s (%s)",
+            request.audit_id,
+            prefix,
+            exception,
+        )
+        return None
+
+
+def _run_audit_from_source(request: BiasReportRequest) -> AuditRunResponse:
+    """재사용할 결과가 없을 때 S3 파일로 감사를 직접 실행한다."""
+
+    payload = request.model_dump(exclude={"analysis_prefix"})
+    return analyze_fairness_s3(
+        FairnessAnalyzeRequest(**payload),
         include_report_meta=True,
     )
+
+
+def generate_bias_report(request: BiasReportRequest) -> BiasReportResponse:
+    """공정성 감사 결과로 편향진단 HTML 리포트를 만들어 S3 에 올린다.
+
+    직전 분석이 S3 에 남긴 결과를 재사용하고, 없을 때만 감사를 직접 실행한다.
+    """
+
+    audit = _reuse_prior_audit(request) or _run_audit_from_source(request)
 
     narratives = _build_narratives(audit, complete)
     figures = generate_bias_figures(audit)

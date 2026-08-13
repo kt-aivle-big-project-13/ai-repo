@@ -5,13 +5,27 @@
 업로드가 아닌 S3 다운로드로 바꾸는 어댑터다 (`app/services/shap.py` 와 동일 패턴).
 """
 
+import logging
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.schemas.audit import AuditInputSource, AuditRunResponse, ThresholdRequest
 from app.schemas.fairness.fairness_internal import FairnessAnalyzeRequest
 from app.services.audit import run_audit
-from app.services.storage import download_s3_object
+from app.services.storage import (
+    S3ConfigurationError,
+    S3UploadError,
+    download_s3_object,
+    upload_s3_object,
+)
+
+logger = logging.getLogger(__name__)
+
+# 감사 결과를 남기는 위치. 편향 리포트가 같은 규칙으로 찾아 읽는다
+# (`app/services/bias/bias_report.py`).
+ARTIFACT_PREFIX_ROOT = "fairness"
+RESULT_FILE_NAME = "audit_result.json"
 
 
 def _build_threshold_request(request: FairnessAnalyzeRequest) -> ThresholdRequest:
@@ -26,14 +40,51 @@ def _build_threshold_request(request: FairnessAnalyzeRequest) -> ThresholdReques
     )
 
 
+def _persist_result(audit_id: int, result: AuditRunResponse) -> None:
+    """감사 결과를 S3 에 남겨 편향 리포트가 재사용할 수 있게 한다.
+
+    같은 초에 재시도가 겹쳐도 서로 덮어쓰지 않도록 run_id 에 초 단위 시각과 함께
+    감사 실행 식별자를 붙인다.
+
+    업로드 실패는 삼킨다. 결과는 이미 응답으로 돌아가므로 분석 자체는 성공한
+    것이고, 편향 리포트는 산출물이 없으면 직접 계산하는 경로로 넘어간다.
+    """
+
+    run_id = (
+        f"fairness_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        f"_{result.audit_id}"
+    )
+    key = f"{ARTIFACT_PREFIX_ROOT}/{audit_id}/{run_id}/{RESULT_FILE_NAME}"
+
+    try:
+        with tempfile.TemporaryDirectory(prefix=f"fairness_result_{audit_id}_") as tmp:
+            path = Path(tmp) / RESULT_FILE_NAME
+            path.write_text(
+                result.model_dump_json(indent=2),
+                encoding="utf-8",
+            )
+            upload_s3_object(path, key)
+    except (S3UploadError, S3ConfigurationError, OSError) as exception:
+        logger.warning(
+            "공정성 감사 결과 저장 실패: audit_id=%s, key=%s (%s)",
+            audit_id,
+            key,
+            exception,
+        )
+
+
 def analyze_s3_request(
     request: FairnessAnalyzeRequest,
     include_report_meta: bool = False,
+    persist_result: bool = False,
 ) -> AuditRunResponse:
     """S3 파일을 내려받아 공정성 감사를 실행하고 임시 파일을 정리한다.
 
     `include_report_meta=True` 면 편향 리포트용 메타·증적도 함께 채운다(기본 off라
     백엔드 연동 경로는 영향 없음).
+
+    `persist_result=True` 면 결과를 S3 에 남겨 편향 리포트가 같은 계산을 다시 하지
+    않도록 한다.
     """
 
     with tempfile.TemporaryDirectory(
@@ -56,7 +107,7 @@ def analyze_s3_request(
             valid_path = temporary_path / f"valid_processed{valid_suffix}"
             download_s3_object(request.validation_dataset_s3_key, valid_path)
 
-        return run_audit(
+        result = run_audit(
             model_path=model_path,
             audit_path=audit_path,
             audit_name=request.audit_name,
@@ -75,3 +126,8 @@ def analyze_s3_request(
                 else None
             ),
         )
+
+        if persist_result:
+            _persist_result(request.audit_id, result)
+
+        return result

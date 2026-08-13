@@ -220,3 +220,50 @@ def test_passes_audit_identity(spy):
 
     assert spy["audit"]["audit_id"] == "77"
     assert spy["audit"]["audit_name"] == "재감사"
+
+
+def test_does_not_persist_result_by_default(spy, monkeypatch):
+    uploaded: list = []
+    monkeypatch.setattr(
+        fairness_analysis, "upload_s3_object", lambda src, key: uploaded.append(key)
+    )
+
+    fairness_analysis.analyze_s3_request(_request())
+
+    assert uploaded == []
+
+
+def test_persists_result_when_requested(spy, monkeypatch):
+    """편향 리포트가 재사용할 수 있도록 감사 결과를 통째로 남긴다."""
+
+    uploaded: dict = {}
+
+    def fake_upload(source, key):
+        uploaded[key] = Path(source).read_text(encoding="utf-8")
+        return key
+
+    monkeypatch.setattr(fairness_analysis, "upload_s3_object", fake_upload)
+
+    fairness_analysis.analyze_s3_request(_request(), persist_result=True)
+
+    assert len(uploaded) == 1
+    key, body = next(iter(uploaded.items()))
+    assert key.startswith(f"fairness/{_request().audit_id}/fairness_")
+    assert key.endswith("/audit_result.json")
+
+    # 리포트가 그대로 되살릴 수 있어야 한다.
+    restored = AuditRunResponse.model_validate_json(body)
+    assert restored.audit_name == _response().audit_name
+
+
+def test_persist_failure_does_not_fail_the_analysis(spy, monkeypatch):
+    """결과는 이미 응답으로 돌아가므로 저장 실패로 분석까지 실패시키지 않는다."""
+
+    def fail_upload(source, key):
+        raise fairness_analysis.S3UploadError("업로드 실패")
+
+    monkeypatch.setattr(fairness_analysis, "upload_s3_object", fail_upload)
+
+    result = fairness_analysis.analyze_s3_request(_request(), persist_result=True)
+
+    assert result.audit_name == _response().audit_name
