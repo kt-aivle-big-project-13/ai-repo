@@ -19,6 +19,7 @@ from app.schemas.validation import (
     ValidationIssue,
     ValidationResult,
 )
+from app.services.model_loading import load_booster
 
 TARGET_COLUMN = "TARGET"
 GENDER_COLUMN = "CODE_GENDER"
@@ -83,8 +84,7 @@ def load_model_schema(model_path: Path) -> ModelSchema:
     피처 이름·범주형 목록은 모델 파일의 `learner` 에 들어 있으므로 별도 스키마
     파일이 필요 없다. 로드에 실패하면 예외를 그대로 올린다.
     """
-    booster = xgb.Booster()
-    booster.load_model(model_path)
+    booster = load_booster(model_path)
 
     with open(model_path, encoding="utf-8") as f:
         learner = json.load(f)["learner"]

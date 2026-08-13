@@ -2,8 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.concurrency import report_slot
 from app.schemas.compliance.compliance_report import (
     ComplianceReportRequest,
     ComplianceReportResponse,
@@ -27,6 +28,7 @@ router = APIRouter(
 
 @router.post(
     "/compliance",
+    dependencies=[Depends(report_slot)],
     response_model=ComplianceReportResponse,
     responses={
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
@@ -39,7 +41,7 @@ router = APIRouter(
             "description": "S3 업로드 또는 LLM 호출 실패",
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "S3 또는 LLM 환경 설정 누락",
+            "description": "S3 또는 LLM 환경 설정 누락, 또는 동시 실행 한도 초과",
         },
     },
 )

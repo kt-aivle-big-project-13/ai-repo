@@ -2,8 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.concurrency import analysis_slot
 from app.schemas.explainability.shap import (
     ShapAnalysisRequest,
     ShapAnalysisResponse,
@@ -24,6 +25,7 @@ router = APIRouter(
 
 @router.post(
     "/analyze",
+    dependencies=[Depends(analysis_slot)],
     response_model=ShapAnalysisResponse,
     response_model_exclude_unset=True,
     responses={
@@ -37,7 +39,7 @@ router = APIRouter(
             "description": "S3 객체 다운로드 실패",
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "S3 환경 설정 누락",
+            "description": "S3 환경 설정 누락, 또는 동시 실행 한도 초과",
         },
     },
 )

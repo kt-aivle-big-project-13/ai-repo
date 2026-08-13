@@ -2,8 +2,9 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.concurrency import report_slot
 from app.schemas.report.report import ReportRequest, ReportResponse
 from app.services.llm import LLMConfigurationError, LLMRequestError
 from app.services.report.report import ReportGenerationError, generate_explainability_report
@@ -23,6 +24,7 @@ router = APIRouter(
 
 @router.post(
     "/explainability",
+    dependencies=[Depends(report_slot)],
     response_model=ReportResponse,
     responses={
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
@@ -35,7 +37,7 @@ router = APIRouter(
             "description": "S3 다운로드·업로드 또는 LLM 호출 실패",
         },
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "S3 또는 LLM 환경 설정 누락",
+            "description": "S3 또는 LLM 환경 설정 누락, 또는 동시 실행 한도 초과",
         },
     },
 )

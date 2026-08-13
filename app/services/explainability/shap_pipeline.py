@@ -34,6 +34,8 @@ import xgboost as xgb
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score, r2_score
 
+from app.services.model_loading import load_booster
+
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -929,8 +931,7 @@ def run_shap_pipeline(
         config,
     )
 
-    model = xgb.Booster()
-    model.load_model(model_path)
+    model = load_booster(model_path)
     raw = pd.read_csv(data_path)
     schema, features, feature_types = schema_validation(raw, model, config)
     write_json(output / "validation" / "schema_validation.json", schema)
