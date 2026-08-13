@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from botocore.exceptions import ClientError
 
 import app.services.storage as storage
 from app.services.storage import S3ConfigurationError, S3UploadError
@@ -285,3 +286,116 @@ def test_upload_raises_on_client_error(monkeypatch, tmp_path):
 
     with pytest.raises(S3UploadError):
         storage.upload_s3_object(source, "reports/report.csv")
+
+
+class _FakePaginator:
+    """list_objects_v2 페이지네이터 대역. 페이지를 순서대로 돌려준다."""
+
+    def __init__(self, pages, captured=None, error=None):
+        self._pages = pages
+        self._captured = captured
+        self._error = error
+
+    def paginate(self, **kwargs):
+        if self._captured is not None:
+            self._captured.update(kwargs)
+        if self._error is not None:
+            raise self._error
+        return iter(self._pages)
+
+
+def _fake_client(pages, captured=None, error=None):
+    class FakeS3Client:
+        def get_paginator(self, name):
+            assert name == "list_objects_v2"
+            return _FakePaginator(pages, captured, error)
+
+    return FakeS3Client()
+
+
+def test_find_latest_prefix_returns_most_recent_run(monkeypatch):
+    monkeypatch.setenv("AWS_S3_BUCKET", "audit-bucket")
+
+    captured: dict = {}
+    pages = [
+        {
+            "CommonPrefixes": [
+                {"Prefix": "explainability/42/shap_audit_20260810T010000Z/"},
+                {"Prefix": "explainability/42/shap_audit_20260812T090000Z/"},
+                {"Prefix": "explainability/42/shap_audit_20260811T120000Z/"},
+            ]
+        }
+    ]
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: _fake_client(pages, captured))
+
+    result = storage.find_latest_prefix("explainability/42")
+
+    assert result == "explainability/42/shap_audit_20260812T090000Z"
+    assert captured["Prefix"] == "explainability/42/"
+    assert captured["Delimiter"] == "/"
+
+
+def test_find_latest_prefix_spans_all_pages(monkeypatch):
+    """한 번의 조회는 1000건까지만 돌려주므로 잘린 목록에서 고르면 안 된다."""
+
+    monkeypatch.setenv("AWS_S3_BUCKET", "audit-bucket")
+
+    pages = [
+        {"CommonPrefixes": [{"Prefix": "explainability/42/shap_audit_20260810T010000Z/"}]},
+        {"CommonPrefixes": [{"Prefix": "explainability/42/shap_audit_20260812T090000Z/"}]},
+    ]
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: _fake_client(pages))
+
+    assert (
+        storage.find_latest_prefix("explainability/42")
+        == "explainability/42/shap_audit_20260812T090000Z"
+    )
+
+
+def test_find_latest_prefix_returns_none_when_no_run_exists(monkeypatch):
+    monkeypatch.setenv("AWS_S3_BUCKET", "audit-bucket")
+    monkeypatch.setattr(storage, "_create_s3_client", lambda: _fake_client([{}]))
+
+    assert storage.find_latest_prefix("explainability/42") is None
+
+
+def test_find_latest_prefix_returns_none_when_bucket_is_missing(monkeypatch):
+    monkeypatch.delenv("AWS_S3_BUCKET", raising=False)
+
+    assert storage.find_latest_prefix("explainability/42") is None
+
+
+def test_find_latest_prefix_returns_none_on_client_error(monkeypatch):
+    monkeypatch.setenv("AWS_S3_BUCKET", "audit-bucket")
+    error = ClientError({"Error": {"Code": "AccessDenied"}}, "ListObjectsV2")
+    monkeypatch.setattr(
+        storage, "_create_s3_client", lambda: _fake_client([], error=error)
+    )
+
+    assert storage.find_latest_prefix("explainability/42") is None
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "explainability/42/shap_audit_X",
+        "  explainability/42/shap_audit_X/  ",
+    ],
+)
+def test_is_run_prefix_of_accepts_direct_child(prefix):
+    assert storage.is_run_prefix_of(prefix, "explainability/42") is True
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "explainability/43/shap_audit_X",       # 다른 감사
+        "explainability/42",                    # 실행 없이 상위 경로
+        "explainability/42/run/nested",         # 한 단계 아래가 아님
+        "explainability/42/..",                 # 상위 탐색
+        "other/42/shap_audit_X",                # 다른 루트
+        "",
+    ],
+)
+def test_is_run_prefix_of_rejects_out_of_scope(prefix):
+    assert storage.is_run_prefix_of(prefix, "explainability/42") is False

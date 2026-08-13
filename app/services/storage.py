@@ -112,6 +112,69 @@ def download_s3_object(
     return destination
 
 
+def find_latest_prefix(base_prefix: str) -> str | None:
+    """`base_prefix` 바로 아래 하위 프리픽스 중 사전순으로 가장 큰 것을 돌려준다.
+
+    산출물 프리픽스가 `explainability/{audit_id}/{run_id}` 형태이고 run_id 가
+    `..._%Y%m%dT%H%M%SZ` 라 사전순 최대가 곧 최신 실행이다. 감사를 재시도하면
+    같은 audit_id 아래에 실행이 여러 개 쌓이므로 마지막 것을 골라야 한다.
+
+    하위 프리픽스가 없거나 조회에 실패하면 None 을 돌려준다 — 호출부가 산출물
+    재사용을 포기하고 직접 계산하는 경로로 넘어갈 수 있게 하기 위함이다.
+    """
+
+    bucket = os.getenv("AWS_S3_BUCKET")
+    if not bucket:
+        return None
+
+    normalized = base_prefix.strip().strip("/")
+    if not normalized:
+        return None
+
+    # 한 번의 조회는 최대 1000건만 돌려주므로, 실행이 그보다 많이 쌓이면 잘린 목록에서
+    # 최댓값을 골라 최신이 아닌 실행을 집게 된다. 페이지를 모두 넘겨 받는다.
+    prefixes: list[str] = []
+    try:
+        pages = _create_s3_client().get_paginator("list_objects_v2").paginate(
+            Bucket=bucket,
+            Prefix=f"{normalized}/",
+            Delimiter="/",
+        )
+        for page in pages:
+            prefixes.extend(
+                entry["Prefix"].rstrip("/")
+                for entry in page.get("CommonPrefixes", [])
+                if entry.get("Prefix")
+            )
+    except (BotoCoreError, ClientError, S3ConfigurationError):
+        return None
+
+    return max(prefixes) if prefixes else None
+
+
+def is_run_prefix_of(prefix: str, base_prefix: str) -> bool:
+    """`prefix` 가 `base_prefix` 바로 아래 실행 프리픽스인지 확인한다.
+
+    호출부가 요청으로 받은 프리픽스를 그대로 읽기 전에 범위를 좁히는 데 쓴다.
+    감사별로 산출물이 나뉘어 있으므로, 다른 감사(`explainability/43/...`)나 상위
+    경로를 가리키는 값을 받아 읽으면 남의 감사 데이터가 리포트에 실릴 수 있다.
+
+    깊이도 한 단계로 제한한다 — `{base}/{run_id}` 형태만 허용하고 그 아래
+    하위 경로나 `..` 같은 상위 탐색은 받지 않는다.
+    """
+
+    normalized_base = base_prefix.strip().strip("/")
+    normalized = prefix.strip().strip("/")
+    if not normalized_base or not normalized:
+        return False
+
+    head, separator, run_id = normalized.rpartition("/")
+    if not separator or head != normalized_base:
+        return False
+
+    return run_id not in ("", ".", "..")
+
+
 def upload_s3_object(source: Path, s3_key: str) -> str:
     """로컬 파일을 지정한 S3 Key로 업로드하고 Key를 돌려준다."""
 
