@@ -363,3 +363,40 @@ def test_fallback_does_not_pass_report_only_field_to_analysis(monkeypatch):
     )
 
     assert result.audit_id == 42
+
+
+def test_rejects_analysis_prefix_from_other_audit(monkeypatch):
+    """다른 감사의 결과를 가리키는 프리픽스를 받아 읽으면 안 된다."""
+
+    upload_sink: dict = {}
+    _patch_render_and_upload(monkeypatch, upload_sink)
+
+    def fail_lookup(base):
+        raise AssertionError("프리픽스를 직접 받으면 탐색하지 않는다")
+
+    monkeypatch.setattr(bias_report_service, "find_latest_prefix", fail_lookup)
+
+    requested: list[str] = []
+
+    def fake_download(key, destination):
+        requested.append(key)
+        return Path(destination)
+
+    monkeypatch.setattr(bias_report_service, "download_s3_object", fake_download)
+
+    analyzed: list = []
+
+    def fake_analyze(fairness_request, include_report_meta=False):
+        analyzed.append(fairness_request.audit_id)
+        return _audit()
+
+    monkeypatch.setattr(bias_report_service, "analyze_fairness_s3", fake_analyze)
+
+    result = bias_report_service.generate_bias_report(
+        _request(audit_id=42, analysis_prefix="fairness/43/fairness_run")
+    )
+
+    # 남의 감사 결과는 읽지 않고 직접 실행으로 넘어간다.
+    assert requested == []
+    assert analyzed == [42]
+    assert result.audit_id == 42
