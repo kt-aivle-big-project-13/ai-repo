@@ -35,6 +35,7 @@ from app.services.storage import (
     S3DownloadError,
     download_s3_object,
     find_latest_prefix,
+    is_run_prefix_of,
     upload_s3_object,
 )
 
@@ -88,6 +89,33 @@ def _render_html(context: dict[str, Any]) -> str:
     return template.render(**context)
 
 
+def _resolve_analysis_prefix(request: BiasReportRequest) -> str | None:
+    """재사용할 감사 결과 프리픽스를 정한다.
+
+    요청으로 받은 값은 그대로 믿지 않고 이 감사의 결과 범위인지 확인한다. 다른
+    감사(`fairness/43/...`)를 가리키는 값을 받아 읽으면 남의 감사 결과가 이
+    리포트에 실리기 때문이다. 범위를 벗어나면 None 을 돌려줘 감사를 직접
+    실행하는 경로로 넘긴다. 설명가능성 리포트와 같은 방식이다
+    (`app/services/report/report.py`).
+    """
+
+    base = f"{ANALYSIS_PREFIX_ROOT}/{request.audit_id}"
+
+    if not request.analysis_prefix:
+        return find_latest_prefix(base)
+
+    if not is_run_prefix_of(request.analysis_prefix, base):
+        logger.warning(
+            "요청한 결과 프리픽스가 이 감사의 범위를 벗어나 무시합니다: "
+            "audit_id=%s, prefix=%s",
+            request.audit_id,
+            request.analysis_prefix,
+        )
+        return None
+
+    return request.analysis_prefix
+
+
 def _reuse_prior_audit(request: BiasReportRequest) -> AuditRunResponse | None:
     """직전 공정성 분석이 S3 에 남긴 결과를 재사용한다.
 
@@ -98,9 +126,7 @@ def _reuse_prior_audit(request: BiasReportRequest) -> AuditRunResponse | None:
     실행하는 경로로 넘어가 리포트 생성 자체는 실패하지 않게 하기 위함이다.
     """
 
-    prefix = request.analysis_prefix or find_latest_prefix(
-        f"{ANALYSIS_PREFIX_ROOT}/{request.audit_id}"
-    )
+    prefix = _resolve_analysis_prefix(request)
     if not prefix:
         return None
 
