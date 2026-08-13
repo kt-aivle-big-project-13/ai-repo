@@ -131,22 +131,48 @@ def find_latest_prefix(base_prefix: str) -> str | None:
     if not normalized:
         return None
 
+    # 한 번의 조회는 최대 1000건만 돌려주므로, 실행이 그보다 많이 쌓이면 잘린 목록에서
+    # 최댓값을 골라 최신이 아닌 실행을 집게 된다. 페이지를 모두 넘겨 받는다.
+    prefixes: list[str] = []
     try:
-        response = _create_s3_client().list_objects_v2(
+        pages = _create_s3_client().get_paginator("list_objects_v2").paginate(
             Bucket=bucket,
             Prefix=f"{normalized}/",
             Delimiter="/",
         )
+        for page in pages:
+            prefixes.extend(
+                entry["Prefix"].rstrip("/")
+                for entry in page.get("CommonPrefixes", [])
+                if entry.get("Prefix")
+            )
     except (BotoCoreError, ClientError, S3ConfigurationError):
         return None
 
-    prefixes = [
-        entry["Prefix"].rstrip("/")
-        for entry in response.get("CommonPrefixes", [])
-        if entry.get("Prefix")
-    ]
-
     return max(prefixes) if prefixes else None
+
+
+def is_run_prefix_of(prefix: str, base_prefix: str) -> bool:
+    """`prefix` 가 `base_prefix` 바로 아래 실행 프리픽스인지 확인한다.
+
+    호출부가 요청으로 받은 프리픽스를 그대로 읽기 전에 범위를 좁히는 데 쓴다.
+    감사별로 산출물이 나뉘어 있으므로, 다른 감사(`explainability/43/...`)나 상위
+    경로를 가리키는 값을 받아 읽으면 남의 감사 데이터가 리포트에 실릴 수 있다.
+
+    깊이도 한 단계로 제한한다 — `{base}/{run_id}` 형태만 허용하고 그 아래
+    하위 경로나 `..` 같은 상위 탐색은 받지 않는다.
+    """
+
+    normalized_base = base_prefix.strip().strip("/")
+    normalized = prefix.strip().strip("/")
+    if not normalized_base or not normalized:
+        return False
+
+    head, separator, run_id = normalized.rpartition("/")
+    if not separator or head != normalized_base:
+        return False
+
+    return run_id not in ("", ".", "..")
 
 
 def upload_s3_object(source: Path, s3_key: str) -> str:

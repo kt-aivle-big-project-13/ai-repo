@@ -374,3 +374,37 @@ def test_generate_report_falls_back_when_artifacts_unavailable(monkeypatch):
 
     assert analyzed == [42]
     assert result.overall_status == "WARNING"
+
+
+def test_generate_report_rejects_analysis_prefix_from_other_audit(monkeypatch):
+    """다른 감사의 산출물을 가리키는 프리픽스를 받아 읽으면 안 된다."""
+
+    upload_sink: dict = {}
+    complete_calls: list = []
+    _patch_common(monkeypatch, upload_sink, complete_calls)
+
+    def fail_lookup(base):
+        raise AssertionError("프리픽스를 직접 받으면 탐색하지 않는다")
+
+    monkeypatch.setattr(report_service, "find_latest_prefix", fail_lookup)
+
+    requested: list[str] = []
+
+    def fake_download(key, destination):
+        requested.append(key)
+        return Path(destination).write_bytes(b"x") or Path(destination)
+
+    monkeypatch.setattr(report_service, "download_s3_object", fake_download)
+    monkeypatch.setattr(
+        report_service,
+        "analyze_local_files",
+        lambda request, model_path, dataset_path, output_dir: _fake_response(True),
+    )
+
+    result = report_service.generate_explainability_report(
+        _request(audit_id=42, analysis_prefix="explainability/43/shap_audit_X")
+    )
+
+    # 남의 감사 산출물은 읽지 않고 직접 분석으로 넘어간다.
+    assert not any(key.startswith("explainability/43/") for key in requested)
+    assert result.overall_status == "WARNING"
